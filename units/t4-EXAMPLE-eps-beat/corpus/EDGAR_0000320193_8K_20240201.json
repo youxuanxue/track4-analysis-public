@@ -1,0 +1,13 @@
+{
+ "doc_id": "EDGAR_0000320193_8K_20240201",
+ "source": "EDGAR-CRAWLER",
+ "form_type": "8-K",
+ "filed_date": "2024-02-01",
+ "doc_date": "2024-02-01",
+ "ticker": "AAPL",
+ "cik": "0000320193",
+ "title": "Apple Inc. Q1 FY2024 Earnings Press Release (8-K Exhibit 99.1)",
+ "pii_stripped": true,
+ "note": "Earnings press release excerpt for public exemplar. Full 8-K available via EDGAR-CRAWLER.",
+ "text": "CUPERTINO, California \u2014 February 1, 2024 \u2014 Apple Inc. today announced financial results for its fiscal 2024 first quarter ended December 30, 2023. The Company posted quarterly revenue of $119.6 billion, up 2 percent year over year, and quarterly earnings per diluted share of $2.18. \"We are happy to report that we had a record quarter, and that our installed base of active devices has now surpassed 2.2 billion,\" said Tim Cook, Apple's CEO. \"We have a very strong product lineup going into the March quarter, and our Services business continues to grow rapidly, contributing meaningfully to our profitability.\" Luca Maestri, Apple's CFO, provided the following guidance for the second fiscal quarter of 2024: total revenue is expected to grow low- to mid-single digits year over year; Services revenue is expected to grow double digits year over year; gross margin is expected to be between 46.0 and 47.0 percent; operating expenses between $14.3 billion and $14.5 billion."
+}

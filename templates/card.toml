@@ -1,0 +1,95 @@
+# =============================================================================
+# QFBench 2.0 Track 4 — task-card EXAMPLE (card.toml v2)
+#
+# This file is a WORKED, ANNOTATED EXAMPLE of the card every unit carries. It is here so you can
+# see the whole shape in one place with each field explained.
+#
+# It is NOT authoritative. The authoritative card is the one shipped with a unit —
+# `units/t4-EXAMPLE-eps-beat/card.toml` for the worked exemplar — and that is what the scorer,
+# the harness and the docs guards read. The `[scoring.params]` values below are pinned to the
+# exemplar's by `baselines/tests/test_template_card_matches_the_exemplar.py`, so this file cannot
+# quietly drift into a second source of truth.
+#
+# Values written as REPLACE_* or TEMPLATE_* are placeholders with no meaning.
+# =============================================================================
+schema_version = "2.0"
+
+[task]
+id              = "t4-REPLACE-slug"       # unique unit id; lowercase, e.g. t4-fomc-curve-20240918
+track           = "analysis"
+title           = "REPLACE: short human-readable title"
+split           = "public-dev"            # the split this unit belongs to; published units are public-dev
+family          = "REPLACE_family_slug"   # descriptive only. taskcard.schema.json constrains
+                                          #   id/track/title/split and NOT family, so no enum is
+                                          #   enforced and no reader switches on it. See
+                                          #   docs/CATEGORIES.md for the families published here.
+target_type     = "classification"        # classification | regression | ranking
+prompt          = "REPLACE: what to predict per entity row, including the units the number is in."
+cutoff_date     = "TEMPLATE_CUTOFF"       # YYYY-MM-DD; cited evidence must be dated on or before this
+resolution_date = "TEMPLATE_RESOLUTION"   # YYYY-MM-DD; when the outcome became known. The gap to
+                                          #   cutoff_date is the horizon and varies widely by family.
+adversarial     = false                   # whether this unit carries an information-hygiene variant.
+                                          #   Published units set false. What a variant contains is
+                                          #   organiser material and is not described here.
+faithfulness_rubric = "REPLACE: the per-unit statement of what makes a citation valid and when the unit is admissible."
+
+[metadata]
+author_name              = "REPLACE: author handle"
+author_email             = "you@example.org"
+difficulty               = "medium"
+category                 = "REPLACE_family_slug"
+tags                     = ["analysis", "tabular", "retrieval"]
+expert_time_estimate_min = 45.0
+junior_time_estimate_min = 120.0
+
+[provenance]
+license             = "REPLACE: the licence the corpus documents are redistributed under"
+data_source         = "REPLACE: where the corpus documents came from"
+data_cutoff         = "TEMPLATE_CUTOFF"
+public_release_date = "TEMPLATE_RELEASE"
+redistributable     = true
+manifest            = "manifest.json"
+
+[contamination]
+# A per-unit contamination marker. Every unit's value is distinct and CI checks uniqueness.
+# Never emit it from an agent.
+canary_guid = "TEMPLATE_UUIDv4"
+
+[scoring]
+verifier            = "t4.faithful_analysis"
+metric              = "analysis_composite"
+admissibility_gates = ["g0_integrity", "g1_schema", "g2_cutoff_resource", "g3_domain_semantics"]
+
+[scoring.params]
+# Pinned to the exemplar unit's card by test_template_card_matches_the_exemplar.py.
+faithfulness_threshold = 0.80
+interval_level         = 0.90
+target_type            = "classification"   # classification | regression | ranking
+composite_weights      = [0.7, 0.3]         # weight on predictive_quality, then on the calibration
+                                            #   penalty |interval_coverage - interval_level|
+tau_citation           = 0.5
+nli_judge_ensemble     = ["cross-encoder/nli-deberta-v3-large", "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"]
+
+[environment]
+# The compute grant and network mode the harness enforces for this unit.
+cpus    = 16
+memory  = "128G"
+gpu     = true
+network = "restricted"
+
+[agent]
+# Authoritative per-unit inference budget. Exceeding it is a g2 timeout failure.
+timeout_sec = 600.0
+
+[verifier]
+# Scoring budget for the NLI-faithfulness + embargo pass over the unit's entity table.
+timeout_sec = 600.0
+
+[corpus]
+pii_stripped      = true
+manifest_required = true
+
+[embargo]
+cutoff_field   = "cutoff_date"   # in task.json
+doc_date_field = "doc_date"      # in each corpus document
+strict         = true            # any cited doc dated after the cutoff makes the unit ineligible

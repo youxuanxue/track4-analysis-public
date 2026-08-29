@@ -1,0 +1,91 @@
+{
+  "manifest_version": "2.0",
+  "unit_id": "t4-macrorev-20240930-us6",
+  "generated_by": "scripts/build_public_dev_set.py",
+  "files": [
+    {
+      "path": "corpus/ALFRED_DGORDER_VINTAGES_20240930.json",
+      "role": "corpus",
+      "source": "ALFRED",
+      "license": "Public domain (US government works: BLS CES, Census MARTS/M3/housing starts, Federal Reserve G.17, BEA personal income), accessed via ALFRED (Federal Reserve Bank of St. Louis); BLS announcement text public domain",
+      "sha256": "752ff18b9643c0f78bd70ef07824e19d2035e17b9dc9ebccfc11d56b5939a75b",
+      "bytes": 2924,
+      "split": "public-dev",
+      "cutoff": "2024-09-30",
+      "redistributable": true,
+      "pii_stripped": true
+    },
+    {
+      "path": "corpus/ALFRED_HOUST_VINTAGES_20240930.json",
+      "role": "corpus",
+      "source": "ALFRED",
+      "license": "Public domain (US government works: BLS CES, Census MARTS/M3/housing starts, Federal Reserve G.17, BEA personal income), accessed via ALFRED (Federal Reserve Bank of St. Louis); BLS announcement text public domain",
+      "sha256": "0b08ef59b2535cdc67a79b1a8e025610cafeed63d59ba4d2ca1b88f072f373b4",
+      "bytes": 1900,
+      "split": "public-dev",
+      "cutoff": "2024-09-30",
+      "redistributable": true,
+      "pii_stripped": true
+    },
+    {
+      "path": "corpus/ALFRED_INDPRO_VINTAGES_20240930.json",
+      "role": "corpus",
+      "source": "ALFRED",
+      "license": "Public domain (US government works: BLS CES, Census MARTS/M3/housing starts, Federal Reserve G.17, BEA personal income), accessed via ALFRED (Federal Reserve Bank of St. Louis); BLS announcement text public domain",
+      "sha256": "9bec6e2c79447d9e461db2cd23be2ba4fae456668b7d6b99e1a9ab761fff9973",
+      "bytes": 3639,
+      "split": "public-dev",
+      "cutoff": "2024-09-30",
+      "redistributable": true,
+      "pii_stripped": true
+    },
+    {
+      "path": "corpus/ALFRED_PAYEMS_VINTAGES_20240930.json",
+      "role": "corpus",
+      "source": "ALFRED",
+      "license": "Public domain (US government works: BLS CES, Census MARTS/M3/housing starts, Federal Reserve G.17, BEA personal income), accessed via ALFRED (Federal Reserve Bank of St. Louis); BLS announcement text public domain",
+      "sha256": "6210b1169de01c9de59e14e003370c599946ab69f6f20bdf5c99e8da275c27d9",
+      "bytes": 2078,
+      "split": "public-dev",
+      "cutoff": "2024-09-30",
+      "redistributable": true,
+      "pii_stripped": true
+    },
+    {
+      "path": "corpus/ALFRED_PI_VINTAGES_20240930.json",
+      "role": "corpus",
+      "source": "ALFRED",
+      "license": "Public domain (US government works: BLS CES, Census MARTS/M3/housing starts, Federal Reserve G.17, BEA personal income), accessed via ALFRED (Federal Reserve Bank of St. Louis); BLS announcement text public domain",
+      "sha256": "3677d16615f0f1755cfca0111d396bfeaca21555e94326ba8479aefbde7692ef",
+      "bytes": 2605,
+      "split": "public-dev",
+      "cutoff": "2024-09-30",
+      "redistributable": true,
+      "pii_stripped": true
+    },
+    {
+      "path": "corpus/ALFRED_RSAFS_VINTAGES_20240930.json",
+      "role": "corpus",
+      "source": "ALFRED",
+      "license": "Public domain (US government works: BLS CES, Census MARTS/M3/housing starts, Federal Reserve G.17, BEA personal income), accessed via ALFRED (Federal Reserve Bank of St. Louis); BLS announcement text public domain",
+      "sha256": "5e5e1eb4327451741df4cd8b4e5efabeb09c5e0a9c248fef8bfde29313c96e56",
+      "bytes": 2126,
+      "split": "public-dev",
+      "cutoff": "2024-09-30",
+      "redistributable": true,
+      "pii_stripped": true
+    },
+    {
+      "path": "corpus/BLS_CES_PRELIM_BENCHMARK_20240821.json",
+      "role": "corpus",
+      "source": "BLS",
+      "license": "Public domain (US government works: BLS CES, Census MARTS/M3/housing starts, Federal Reserve G.17, BEA personal income), accessed via ALFRED (Federal Reserve Bank of St. Louis); BLS announcement text public domain",
+      "sha256": "a2793561d529886fac47153b3b6aa1e562943684964142caa7aa7368f8482211",
+      "bytes": 11526,
+      "split": "public-dev",
+      "cutoff": "2024-09-30",
+      "redistributable": true,
+      "pii_stripped": true
+    }
+  ]
+}

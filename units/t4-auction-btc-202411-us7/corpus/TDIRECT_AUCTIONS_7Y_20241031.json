@@ -1,0 +1,10 @@
+{
+  "doc_id": "TDIRECT_AUCTIONS_7Y_20241031",
+  "source": "TreasuryDirect",
+  "doc_type": "auction_history_table",
+  "doc_date": "2024-10-29",
+  "title": "Treasury 7-Year Note auction results, Oct-2023 to Oct-2024",
+  "url": "https://www.treasurydirect.gov/TA_WS/securities/search?format=json",
+  "pii_stripped": true,
+  "text": "U.S. Treasury 7-Year Note auctions \u2014 results from October 2023 through October 2024.\nSource: TreasuryDirect auction results API (www.treasurydirect.gov/TA_WS/securities/search), U.S. Department of the Treasury, public domain. Bid-to-cover ratio = total competitive and noncompetitive bids tendered divided by total accepted; indirect share = indirect bidder accepted / competitive accepted (a proxy for foreign and investment-fund demand).\n\nauction_date | term | new/reopen | offering_$B | bid_to_cover | high_yield_% | indirect_share_%\n2023-10-26 | 7-Year | new | 38.0 | 2.70 | 4.908 | 70.6\n2023-11-28 | 7-Year | new | 39.0 | 2.44 | 4.399 | 63.9\n2023-12-28 | 7-Year | new | 40.0 | 2.50 | 3.859 | 63.7\n2024-01-25 | 7-Year | new | 41.0 | 2.57 | 4.109 | 69.1\n2024-02-27 | 7-Year | new | 42.0 | 2.58 | 4.327 | 69.6\n2024-03-27 | 7-Year | new | 43.0 | 2.61 | 4.185 | 69.7\n2024-04-25 | 7-Year | new | 44.0 | 2.48 | 4.716 | 65.1\n2024-05-29 | 7-Year | new | 44.0 | 2.43 | 4.65 | 66.9\n2024-06-27 | 7-Year | new | 44.0 | 2.58 | 4.276 | 69.7\n2024-07-25 | 7-Year | new | 44.0 | 2.64 | 4.162 | 74.4\n2024-08-29 | 7-Year | new | 44.0 | 2.50 | 3.77 | 75.1\n2024-09-26 | 7-Year | new | 44.0 | 2.63 | 3.668 | 70.8\n2024-10-29 | 7-Year | new | 44.0 | 2.74 | 4.215 | 72.0\n\nNOTES (derived from the table above): across the 13 auctions shown, the bid-to-cover ratio ranged from 2.43 to 2.74; the average over the six most recent auctions is 2.587. The most recent auction (2024-10-29) drew a bid-to-cover of 2.74.\n"
+}

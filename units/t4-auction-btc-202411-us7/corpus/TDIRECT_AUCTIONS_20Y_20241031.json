@@ -1,0 +1,10 @@
+{
+  "doc_id": "TDIRECT_AUCTIONS_20Y_20241031",
+  "source": "TreasuryDirect",
+  "doc_type": "auction_history_table",
+  "doc_date": "2024-10-23",
+  "title": "Treasury 20-Year Bond (new issues and reopenings) auction results, Oct-2023 to Oct-2024",
+  "url": "https://www.treasurydirect.gov/TA_WS/securities/search?format=json",
+  "pii_stripped": true,
+  "text": "U.S. Treasury 20-Year Bond (new issues and reopenings) auctions \u2014 results from October 2023 through October 2024.\nSource: TreasuryDirect auction results API (www.treasurydirect.gov/TA_WS/securities/search), U.S. Department of the Treasury, public domain. Bid-to-cover ratio = total competitive and noncompetitive bids tendered divided by total accepted; indirect share = indirect bidder accepted / competitive accepted (a proxy for foreign and investment-fund demand).\n\nauction_date | term | new/reopen | offering_$B | bid_to_cover | high_yield_% | indirect_share_%\n2023-10-18 | 19-Year 10-Month | reopen | 13.0 | 2.59 | 5.245 | 72.9\n2023-11-20 | 20-Year | new | 16.0 | 2.58 | 4.78 | 74.0\n2023-12-20 | 19-Year 11-Month | reopen | 13.0 | 2.55 | 4.213 | 66.4\n2024-01-17 | 19-Year 10-Month | reopen | 13.0 | 2.53 | 4.423 | 62.2\n2024-02-21 | 20-Year | new | 16.0 | 2.39 | 4.595 | 59.1\n2024-03-19 | 19-Year 11-Month | reopen | 13.0 | 2.79 | 4.542 | 73.5\n2024-04-17 | 19-Year 10-Month | reopen | 13.0 | 2.82 | 4.818 | 74.7\n2024-05-22 | 20-Year | new | 16.0 | 2.51 | 4.635 | 70.8\n2024-06-18 | 19-Year 11-Month | reopen | 13.0 | 2.74 | 4.452 | 77.9\n2024-07-17 | 19-Year 10-Month | reopen | 13.0 | 2.68 | 4.466 | 77.2\n2024-08-21 | 20-Year | new | 16.0 | 2.54 | 4.16 | 71.0\n2024-09-17 | 19-Year 11-Month | reopen | 13.0 | 2.51 | 4.039 | 65.1\n2024-10-23 | 19-Year 10-Month | reopen | 13.0 | 2.59 | 4.59 | 67.9\n\nNOTES (derived from the table above): across the 13 auctions shown, the bid-to-cover ratio ranged from 2.39 to 2.82; the average over the six most recent auctions is 2.595. The most recent auction (2024-10-23) drew a bid-to-cover of 2.59.\n"
+}

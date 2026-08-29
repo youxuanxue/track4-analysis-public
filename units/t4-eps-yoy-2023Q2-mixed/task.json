@@ -1,0 +1,94 @@
+{
+  "task_id": "t4-eps-yoy-2023Q2-mixed",
+  "schema_version": "3",
+  "family": "eps_yoy_direction",
+  "target": {
+    "name": "eps_yoy_direction",
+    "type": "classification",
+    "labels": [
+      "up",
+      "down"
+    ]
+  },
+  "prompt": "Using ONLY the frozen evidence corpus (each company's SEC filings available on or before the 2023-07-14 cutoff), predict for each company whether its GAAP diluted EPS for the June-2023 quarter - reported AFTER the cutoff - will be HIGHER ('up') or LOWER ('down') than its GAAP diluted EPS for the same quarter one year earlier (given as prior_year_q_eps). Also give a point forecast of the June-2023-quarter diluted EPS and a 90% interval. Support every prediction with citations to passages in the frozen corpus (each firm's most recent 10-Q). Do NOT rely on the post-cutoff earnings release; it is absent by design.",
+  "cutoff_date": "2023-07-14",
+  "resolution_date": "2023-08-02",
+  "interval_level": 0.9,
+  "corpus_manifest": "corpus/manifest.json",
+  "faithfulness_rubric": "Every claim must cite a passage from a corpus/ document whose doc_date <= 2023-07-14 (embargo). A roster entity's prediction counts as supported when some cited span entails it above tau_citation = 0.5; the unit is admissible when at least faithfulness_threshold = 0.80 of the ROSTER's predictions are supported -- the denominator is the roster, not the number of claims written. Claims must not assert diluted-EPS figures from the June-2023-quarter earnings releases (post-cutoff, absent by design). Failure codes: T4_UNFAITHFUL_CITATION, T4_STALE_EVIDENCE.",
+  "entities": [
+    {
+      "entity_id": "AMD",
+      "name": "Advanced Micro Devices, Inc.",
+      "sector": "Information Technology",
+      "cik": "0000002488",
+      "quarter_reported": "three months ended 2023-06-30",
+      "prior_year_quarter": "three months ended 2022-06-30",
+      "prior_year_q_eps": 0.27,
+      "expected_report_date": "2023-08-01",
+      "currency": "USD/share",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "AMGN",
+      "name": "Amgen Inc.",
+      "sector": "Health Care",
+      "cik": "0000318154",
+      "quarter_reported": "three months ended 2023-06-30",
+      "prior_year_quarter": "three months ended 2022-06-30",
+      "prior_year_q_eps": 2.45,
+      "expected_report_date": "2023-08-01",
+      "currency": "USD/share",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "DOW",
+      "name": "Dow Inc.",
+      "sector": "Materials",
+      "cik": "0001751788",
+      "quarter_reported": "three months ended 2023-06-30",
+      "prior_year_quarter": "three months ended 2022-06-30",
+      "prior_year_q_eps": 2.26,
+      "expected_report_date": "2023-07-25",
+      "currency": "USD/share",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "HON",
+      "name": "Honeywell International Inc.",
+      "sector": "Industrials",
+      "cik": "0000773840",
+      "quarter_reported": "three months ended 2023-06-30",
+      "prior_year_quarter": "three months ended 2022-06-30",
+      "prior_year_q_eps": 1.84,
+      "expected_report_date": "2023-07-27",
+      "currency": "USD/share",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "IBM",
+      "name": "International Business Machines Corporation",
+      "sector": "Information Technology",
+      "cik": "0000051143",
+      "quarter_reported": "three months ended 2023-06-30",
+      "prior_year_quarter": "three months ended 2022-06-30",
+      "prior_year_q_eps": 1.53,
+      "expected_report_date": "2023-07-19",
+      "currency": "USD/share",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "TMO",
+      "name": "Thermo Fisher Scientific Inc.",
+      "sector": "Health Care",
+      "cik": "0000097745",
+      "quarter_reported": "three months ended 2023-06-30",
+      "prior_year_quarter": "three months ended 2022-06-30",
+      "prior_year_q_eps": 4.22,
+      "expected_report_date": "2023-07-26",
+      "currency": "USD/share",
+      "corpus_ref": "corpus/"
+    }
+  ],
+  "notes": "Public-dev practice unit. This unit was retired from the Track 4 scored set because it is memorization-exposed (its outcome resolves on or before the approximate training cutoff of the models under evaluation), which is what makes it safe to publish. It is provided so you can exercise the unit format, the frozen-corpus discipline and the citation/faithfulness requirements end-to-end. No resolved outcome is shipped with it: public-dev units are not scored, and the answer key stays in the private repo. Author-facing design commentary has been removed from this field."
+}

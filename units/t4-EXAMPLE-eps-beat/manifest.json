@@ -1,0 +1,43 @@
+{
+  "manifest_version": "2.0",
+  "unit_id": "t4-EXAMPLE-eps-beat",
+  "generated_by": "canonical-manifest fix",
+  "files": [
+    {
+      "path": "task.json",
+      "role": "input",
+      "license": "Public domain (US government works: SEC EDGAR filings; Federal Reserve / FRED and BEA series)",
+      "sha256": "e92f32e0b2ac988fac6db9d9becabf20c72117f374dcf8aed7adaa24db9d1802",
+      "bytes": 1786,
+      "split": "public-dev",
+      "redistributable": true
+    },
+    {
+      "path": "corpus/EDGAR_0000320193_10Q_20240202.json",
+      "role": "corpus",
+      "source": "public (example)",
+      "license": "Public record (US SEC EDGAR filing). Freely redistributable as filed; no separate copyright licence is granted by the filer or the SEC.",
+      "sha256": "876957c8af7e34a66f714bf81fdbfae1796d6b377209a6ac868f2c18555fa08d",
+      "bytes": 1774,
+      "split": "public-dev",
+      "cutoff": "2024-03-15",
+      "public_release_date": "2026-07-20",
+      "redistributable": true,
+      "pii_stripped": true
+    },
+    {
+      "path": "corpus/EDGAR_0000320193_8K_20240201.json",
+      "role": "corpus",
+      "source": "public (example)",
+      "license": "Public record (US SEC EDGAR filing). Freely redistributable as filed; no separate copyright licence is granted by the filer or the SEC.",
+      "sha256": "f01a10b8bc29bf3f4fa065d8d3bb90c96e58c43bdfb14a649a4e5ea355e8aa69",
+      "bytes": 1395,
+      "split": "public-dev",
+      "cutoff": "2024-03-15",
+      "public_release_date": "2026-07-20",
+      "redistributable": true,
+      "pii_stripped": true
+    }
+  ],
+  "notes": "Example unit. Canonical per-file manifest; domain metadata (panels/targets/corpus) lives in card.toml."
+}

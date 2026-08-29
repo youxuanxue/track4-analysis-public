@@ -1,0 +1,138 @@
+name: Track 4 CI
+
+# Each track repo's root IS the public folder, so all paths below are root-relative.
+on:
+  push:
+    branches: [main, "task/**", "track4/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # Runs FIRST and installs nothing but pytest, so it survives anything that can go wrong with
+  # the toolkit install below (an unresolvable ref, a network failure, a bad tag). Any check
+  # placed behind that install is a check that disappears when the install breaks. The stdlib half
+  # (card schema, track, the private-test rejection, canary uniqueness) needs no toolkit,
+  # so it belongs here. Manifest checksums and assert_public_safe genuinely live in the
+  # shared package and stay in validate-units below.
+  firewall:
+    name: Firewall (stdlib only, no secret — runs on forks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.13"
+      - name: Install pytest (no token required)
+        run: |
+          python -m pip install --upgrade pip
+          pip install "pytest==9.1.1"
+      - name: Card, track, split and canary checks
+        run: python .github/validate_units.py analysis --stdlib-only
+      # These 31 tests need neither the toolkit nor transformers, so they belong in the
+      # secret-free job. baselines/tests/test_harness_argv.py is the regression net for the
+      # `analyze` verb contract (#6) -- until now nothing ever executed it.
+      # `python -m pytest`, NOT the bare `pytest` console script: the -m form puts the
+      # working directory on sys.path, and these tests import `baselines.*`. The console
+      # script does not, and collection fails with ModuleNotFoundError: No module named
+      # 'baselines'.
+      - name: Baseline + harness-contract tests
+        run: python -m pytest baselines -q
+
+  lint-type:
+    name: Lint + type check (ruff + mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.13"
+      # The toolkit is installed from the PUBLIC toolkit repository, so this workflow needs no
+      # secret and runs on fork pull requests like every other job here.
+      #
+      # Pin a TAG, never a branch. The contract set this repo consumes is 1.1.0; a moving ref is
+      # how a scorer starts consuming a contract nobody re-acknowledged, and the pyproject floor
+      # (`>=2.3.0,<3`) does not pin anything by itself.
+      #
+      # The contract surfaces this repo consumes, and which the pinned toolkit must carry (import
+      # each name against it to re-verify after any bump):
+      #   * C1 1.2.0 re-minted `fixtures/c1/analysis_final.expanded.json` and closed
+      #     `TARGET_TYPES` / `COMPOSITE_WEIGHT_KEYS` -> scoring/tests/test_plan_contract.py
+      #   * C4 registry 1.1.0 added `FailureCode.DOMAIN_GATE_FAILED` -> qfbench2_track_analysis/codes.py
+      #   * `qfbench2_common.smoke.resolve_verifier_factory` -> scoring/tests/test_judge_required.py
+      #   * `faithfulness.EMBARGO_REASONS` / `ISO_DATE_RE` / the fail-closed `embargo_violations`
+      #     -> scoring/tests/test_corpus_lookup_safety.py
+      #   * `py.typed` -> the two hub-exception subclasses in codes.py now type-check unignored
+      # Move all three install lines in this file together; do NOT switch to a branch name to
+      # make it green.
+      - name: Install tools + shared toolkit
+        run: |
+          python -m pip install --upgrade pip
+          pip install "ruff==0.4.7" "mypy==1.10.0"
+          # mypy --strict needs the types of everything faithfulness/ imports. No fastapi or
+          # pydantic pin is needed: `faithfulness/serving/` is documentation only in the public
+          # repo (the organizer deployment is not published), so nothing under `faithfulness/`
+          # imports a web framework. pytest is for the tests/ fixture decorators.
+          pip install "pytest==9.1.1"
+          pip install "qfbench2-common @ git+https://github.com/Agenthon-2026/Agenthon2026-public.git@v2.3.1#subdirectory=common"
+      - name: Ruff lint
+        run: ruff check scoring faithfulness qfbench2_track_analysis
+      - name: Ruff format check
+        run: ruff format --check scoring faithfulness qfbench2_track_analysis
+      - name: Mypy (strict)
+        run: mypy --strict --ignore-missing-imports scoring faithfulness qfbench2_track_analysis
+
+  # scoring/tests and faithfulness/tests need the shared toolkit. It now installs from the
+  # PUBLIC toolkit repository over anonymous HTTPS, so -- unlike before -- these suites do run on
+  # fork pull requests. The `firewall` job below is still kept separate and stdlib-only, because
+  # it must stay green even if the toolkit install itself breaks.
+  #
+  # Kept as its own job rather than folded into lint-type ON PURPOSE: faithfulness/tests
+  # additionally needs `transformers` importable, and installing it into lint-type changes
+  # what mypy sees. With transformers absent, `--ignore-missing-imports` types Pipeline as
+  # Any and mypy --strict reports "no issues found in 11 source files"; with it present the
+  # real types resolve and 4 pre-existing errors surface in faithfulness/judge.py:95,:310
+  # and faithfulness/tests/test_judge_entailment.py:37. Those are latent defects in code
+  # this PR does not touch, so they are reported in the PR body rather than masked or
+  # hastily patched here -- and lint-type's environment is left exactly as it was.
+  tests:
+    name: Tests (scorer + judge, toolkit-backed)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.13"
+      - name: Install pytest, transformers + shared toolkit
+        run: |
+          python -m pip install --upgrade pip
+          # transformers is an IMPORT-time requirement of DeBERTaNLIJudge, so
+          # faithfulness/tests cannot construct a judge without it even though they stub the
+          # pipeline and load no weights. torch is NOT pulled in and is not needed -- the
+          # install warns "PyTorch was not found" and the tokenizer-only install suffices.
+          # Pinned deliberately: an unpinned ruff jumped 0.15.21 -> 0.16.0 mid-cycle in July
+          # and reddened every track's lint job on untouched code. Same trap applies here.
+          pip install "pytest==9.1.1" "transformers==5.15.0"
+          pip install "qfbench2-common @ git+https://github.com/Agenthon-2026/Agenthon2026-public.git@v2.3.1#subdirectory=common"
+      # `python -m pytest` for the same sys.path reason as the firewall job above.
+      - name: Scorer + judge tests
+        run: python -m pytest scoring/tests faithfulness/tests -q
+
+  # The toolkit-backed half: manifest checksums and the public-safety firewall live in the
+  # shared package. Kept separate from the stdlib-only `firewall` job above so that a broken or
+  # unreachable toolkit install cannot take the card/track/split/canary checks down with it —
+  # do not fold these back together.
+  validate-units:
+    name: Validate units (+ manifests · public-safety)
+    needs: firewall
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.13"
+      - name: Install shared toolkit
+        run: |
+          python -m pip install --upgrade pip
+          pip install "qfbench2-common @ git+https://github.com/Agenthon-2026/Agenthon2026-public.git@v2.3.1#subdirectory=common"
+      - name: Validate all public units
+        run: python .github/validate_units.py analysis

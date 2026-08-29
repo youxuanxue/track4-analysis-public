@@ -1,0 +1,78 @@
+{
+  "task_id": "t4-credit-event-2023",
+  "schema_version": "3",
+  "family": "credit_event",
+  "target": {
+    "name": "credit_event_12m",
+    "type": "classification",
+    "labels": [
+      "credit_event",
+      "no_event"
+    ]
+  },
+  "prompt": "Using ONLY the frozen evidence corpus (each company's SEC filings available on or before the 2023-03-31 cutoff), predict for each company whether it will experience a CREDIT EVENT in the 12 months after the cutoff (through 2024-03-31). A credit event = a Chapter 11 or Chapter 7 bankruptcy filing, a payment default, or a rating-agency-recognized distressed debt exchange. For each company give a label (credit_event / no_event), a point_forecast = your predicted PROBABILITY of a credit event (0 to 1), and a 90% interval on that probability. Reason from pre-cutoff solvency signals - going-concern language, net losses, leverage, near-term debt maturities, covenant headroom, and liquidity. Support every prediction with citations to the frozen corpus. Do NOT rely on any post-cutoff information; it is absent by design.",
+  "cutoff_date": "2023-03-31",
+  "resolution_date": "2024-03-31",
+  "interval_level": 0.9,
+  "corpus_manifest": "corpus/manifest.json",
+  "faithfulness_rubric": "Every claim must cite a passage from a corpus/ document whose doc_date <= 2023-03-31 (embargo). A roster entity's prediction counts as supported when some cited span entails it above tau_citation = 0.5; the unit is admissible when at least faithfulness_threshold = 0.80 of the ROSTER's predictions are supported -- the denominator is the roster, not the number of claims written. Claims must not assert post-cutoff events (the bankruptcy filings themselves are post-cutoff, absent by design). Failure codes: T4_UNFAITHFUL_CITATION, T4_STALE_EVIDENCE.",
+  "entities": [
+    {
+      "entity_id": "BBBY",
+      "name": "Bed Bath & Beyond Inc.",
+      "industry": "Consumer Discretionary (specialty retail)",
+      "cik": "0000886158",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "BBY",
+      "name": "Best Buy Co., Inc.",
+      "industry": "Consumer Discretionary (electronics retail)",
+      "cik": "0000764478",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "M",
+      "name": "Macy's, Inc.",
+      "industry": "Consumer Discretionary (department stores)",
+      "cik": "0000794367",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "ODFL",
+      "name": "Old Dominion Freight Line, Inc.",
+      "industry": "Industrials (less-than-truckload trucking)",
+      "cik": "0000878927",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "RAD",
+      "name": "Rite Aid Corporation",
+      "industry": "Consumer Staples (drug retail)",
+      "cik": "0000084129",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "WBA",
+      "name": "Walgreens Boots Alliance, Inc.",
+      "industry": "Consumer Staples (drug retail)",
+      "cik": "0001618921",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "WE",
+      "name": "WeWork Inc.",
+      "industry": "Real Estate (flexible workspace)",
+      "cik": "0001813756",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "YELL",
+      "name": "Yellow Corporation",
+      "industry": "Industrials (less-than-truckload trucking)",
+      "cik": "0000716006",
+      "corpus_ref": "corpus/"
+    }
+  ],
+  "notes": "Public-dev practice unit. This unit was retired from the Track 4 scored set because it is memorization-exposed (its outcome resolves on or before the approximate training cutoff of the models under evaluation), which is what makes it safe to publish. It is provided so you can exercise the unit format, the frozen-corpus discipline and the citation/faithfulness requirements end-to-end. No resolved outcome is shipped with it: public-dev units are not scored, and the answer key stays in the private repo. Author-facing design commentary has been removed from this field."
+}

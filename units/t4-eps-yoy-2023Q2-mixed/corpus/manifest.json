@@ -1,0 +1,79 @@
+{
+  "manifest_version": "2.0",
+  "unit_id": "t4-eps-yoy-2023Q2-mixed",
+  "generated_by": "scripts/build_public_dev_set.py",
+  "files": [
+    {
+      "path": "corpus/EDGAR_0000002488_10Q_20230503.json",
+      "role": "corpus",
+      "source": "EDGAR",
+      "license": "Public record (US SEC EDGAR filing). Freely redistributable as filed; no separate copyright licence is granted by the filer or the SEC.",
+      "sha256": "c40d939f151d12c58b671e15e7e791a7e8ecff3b362442ed488ec734cacf744c",
+      "bytes": 193756,
+      "split": "public-dev",
+      "cutoff": "2023-07-14",
+      "redistributable": true,
+      "pii_stripped": true
+    },
+    {
+      "path": "corpus/EDGAR_0000051143_10Q_20230425.json",
+      "role": "corpus",
+      "source": "EDGAR",
+      "license": "Public record (US SEC EDGAR filing). Freely redistributable as filed; no separate copyright licence is granted by the filer or the SEC.",
+      "sha256": "853ec9f8ea9b88489f49d8c0e841a21c351f77c0d2ef1df3e9de6ea4595a725d",
+      "bytes": 262560,
+      "split": "public-dev",
+      "cutoff": "2023-07-14",
+      "redistributable": true,
+      "pii_stripped": true
+    },
+    {
+      "path": "corpus/EDGAR_0000097745_10Q_20230505.json",
+      "role": "corpus",
+      "source": "EDGAR",
+      "license": "Public record (US SEC EDGAR filing). Freely redistributable as filed; no separate copyright licence is granted by the filer or the SEC.",
+      "sha256": "c7c49fbbd70c09601ecd40ae11bdb4ef63a0fc72658c5f0418b83b859431b820",
+      "bytes": 96378,
+      "split": "public-dev",
+      "cutoff": "2023-07-14",
+      "redistributable": true,
+      "pii_stripped": true
+    },
+    {
+      "path": "corpus/EDGAR_0000318154_10Q_20230428.json",
+      "role": "corpus",
+      "source": "EDGAR",
+      "license": "Public record (US SEC EDGAR filing). Freely redistributable as filed; no separate copyright licence is granted by the filer or the SEC.",
+      "sha256": "931868567048de7789a6a5121ec7cf6da9d21756704e4440bb8a16f95a2ac0da",
+      "bytes": 188641,
+      "split": "public-dev",
+      "cutoff": "2023-07-14",
+      "redistributable": true,
+      "pii_stripped": true
+    },
+    {
+      "path": "corpus/EDGAR_0000773840_10Q_20230427.json",
+      "role": "corpus",
+      "source": "EDGAR",
+      "license": "Public record (US SEC EDGAR filing). Freely redistributable as filed; no separate copyright licence is granted by the filer or the SEC.",
+      "sha256": "8cd61567f1fa7546b6d277520d9f5d17fd9b48e334bf7552a74617c5f9fd0473",
+      "bytes": 126814,
+      "split": "public-dev",
+      "cutoff": "2023-07-14",
+      "redistributable": true,
+      "pii_stripped": true
+    },
+    {
+      "path": "corpus/EDGAR_0001751788_10Q_20230426.json",
+      "role": "corpus",
+      "source": "EDGAR",
+      "license": "Public record (US SEC EDGAR filing). Freely redistributable as filed; no separate copyright licence is granted by the filer or the SEC.",
+      "sha256": "089ee420ac6fd462d4a5e74d5ec0233b3b3f32631adbf4be656593350fc83e76",
+      "bytes": 139853,
+      "split": "public-dev",
+      "cutoff": "2023-07-14",
+      "redistributable": true,
+      "pii_stripped": true
+    }
+  ]
+}

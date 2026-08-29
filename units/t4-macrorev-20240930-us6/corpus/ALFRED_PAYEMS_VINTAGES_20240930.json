@@ -1,0 +1,11 @@
+{
+  "doc_id": "ALFRED_PAYEMS_VINTAGES_20240930",
+  "source": "ALFRED",
+  "doc_type": "vintage_table",
+  "series_id": "PAYEMS",
+  "doc_date": "2024-09-06",
+  "title": "PAYEMS (Total Nonfarm Payroll Employment) \u2014 real-time vintage table of 2024 estimates as of 2024-09-06",
+  "url": "https://alfred.stlouisfed.org/series?seid=PAYEMS",
+  "pii_stripped": true,
+  "text": "PAYEMS \u2014 Total Nonfarm Payroll Employment\nSource: ALFRED (Federal Reserve Bank of St. Louis archival FRED), series PAYEMS. Underlying data: U.S. Bureau of Labor Statistics (CES). Units: thousands of persons, seasonally adjusted.\nRevision schedule: monthly Employment Situation release, first Friday; each month the two prior months are revised.\n\nVINTAGE TABLE \u2014 the value of PAYEMS for each reference month exactly as published on each pre-cutoff release (vintage) date. Reading across a row shows how the estimate for that month was revised in later releases.\n\nreference_month | as_of_2024-06-07 | as_of_2024-07-05 | as_of_2024-08-02 | as_of_2024-09-06\n2024-01 | 157560 | 157560 | 157560 | 157560\n2024-02 | 157796 | 157796 | 157796 | 157796\n2024-03 | 158106 | 158106 | 158106 | 158106\n2024-04 | 158271 | 158214 | 158214 | 158214\n2024-05 | 158543 | 158432 | 158430 | 158430\n2024-06 | -- | 158638 | 158609 | 158548\n2024-07 | -- | -- | 158723 | 158637\n2024-08 | -- | -- | -- | 158779\n\nREVISION NOTES (derived from the vintage table above):\n- The 2024-04 estimate was revised DOWN from 158271.0 (as of 2024-06-07) to 158214.0 (as of 2024-07-05).\n- The 2024-05 estimate was revised DOWN from 158543.0 (as of 2024-06-07) to 158432.0 (as of 2024-07-05).\n- The 2024-05 estimate was revised DOWN from 158432.0 (as of 2024-07-05) to 158430.0 (as of 2024-08-02).\n- The 2024-06 estimate was revised DOWN from 158638.0 (as of 2024-07-05) to 158609.0 (as of 2024-08-02).\n- The 2024-06 estimate was revised DOWN from 158609.0 (as of 2024-08-02) to 158548.0 (as of 2024-09-06).\n- The 2024-07 estimate was revised DOWN from 158723.0 (as of 2024-08-02) to 158637.0 (as of 2024-09-06).\n"
+}

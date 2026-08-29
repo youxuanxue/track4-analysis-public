@@ -1,0 +1,28 @@
+{
+  "_comment": "EXAMPLE task.json. Not authoritative: the shipped exemplar is units/t4-EXAMPLE-eps-beat/task.json. Fields are explained in docs/AUTHORING-GUIDE.md. Values written as REPLACE_* or YYYY-MM-DD are placeholders.",
+  "task_id": "t4-REPLACE-slug",
+  "schema_version": "3",
+  "family": "REPLACE_family_slug",
+  "target": {
+    "name": "REPLACE_target_name",
+    "type": "classification",
+    "labels": ["REPLACE_LABEL_A", "REPLACE_LABEL_B"]
+  },
+  "prompt": "REPLACE: plain-English description of what to predict per entity row, including the units a numeric target must be in.",
+  "cutoff_date": "YYYY-MM-DD",
+  "resolution_date": "YYYY-MM-DD",
+  "interval_level": 0.90,
+  "corpus_manifest": "manifest.json",
+  "faithfulness_rubric": "REPLACE: what makes a citation valid for this unit, and when the unit is admissible. See units/t4-EXAMPLE-eps-beat/task.json for the shipped wording.",
+  "entities": [
+    {
+      "entity_id": "REPLACE_TICKER_OR_ID",
+      "name": "REPLACE: human-readable name",
+      "sector": "REPLACE_CATEGORICAL_FEATURE",
+      "REPLACE_NUMERIC_FEATURE_1": 0.0,
+      "REPLACE_NUMERIC_FEATURE_2": 0.0,
+      "corpus_ref": "corpus/"
+    }
+  ],
+  "notes": "REPLACE or remove. Resolved outcomes never appear in a task file."
+}

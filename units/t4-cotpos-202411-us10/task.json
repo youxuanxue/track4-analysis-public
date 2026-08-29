@@ -1,0 +1,138 @@
+{
+  "task_id": "t4-cotpos-202411-us10",
+  "schema_version": "3",
+  "family": "positioning_shift",
+  "target": {
+    "name": "net_positioning_change_pct_oi_rank",
+    "type": "ranking"
+  },
+  "prompt": "Using ONLY the frozen evidence corpus (CFTC Commitments of Traders weekly noncommercial positioning tables for ten major U.S. futures markets through the 2024-10-22 report, a COT methodology and release-schedule note, and a market/macro snapshot as of the 2024-10-31 cutoff), predict the RANKING of the ten futures markets by the CHANGE in their noncommercial net position (futures only) from the 2024-10-22 COT report to the 2024-11-26 COT report, expressed as a percent of the market's 2024-10-22 open interest. Rank 1 = largest increase (largest shift toward net long). For each market provide a point_forecast of the positioning change in percent of open interest (the scorer ranks markets by this value) and a 90% interval around it, and support your reasoning with citations to passages in the frozen corpus. The forecast window spans the 2024-11-05 U.S. general election and the 2024-11-06/07 FOMC meeting (dates are in the corpus); reason from positioning levels and crowdedness, the October market backdrop (yields, dollar, VIX), and how speculative positioning typically responds to event outcomes. Post-cutoff COT reports are absent by design; do NOT assert their contents as known.",
+  "cutoff_date": "2024-10-31",
+  "resolution_date": "2024-12-02",
+  "interval_level": 0.9,
+  "corpus_manifest": "corpus/manifest.json",
+  "faithfulness_rubric": "Every claim must cite a passage from a corpus/ document whose doc_date <= 2024-10-31 (embargo). A roster entity's prediction counts as supported when some cited span entails it above tau_citation = 0.5; the unit is admissible when at least faithfulness_threshold = 0.80 of the ROSTER's predictions are supported -- the denominator is the roster, not the number of claims written. Claims must not assert post-cutoff COT report contents or post-cutoff market moves (absent by design). Failure codes: T4_UNFAITHFUL_CITATION, T4_STALE_EVIDENCE.",
+  "entities": [
+    {
+      "entity_id": "CORN_CBT",
+      "name": "Corn futures",
+      "exchange": "Chicago Board of Trade",
+      "asset_class": "agriculture",
+      "net_noncommercial_20241022": 17840,
+      "open_interest_20241022": 1643455,
+      "net_pct_oi_20241022": 1.09,
+      "trailing_4wk_net_change_pct_oi": 4.99,
+      "unit": "pct_of_open_interest",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "ES_SP500",
+      "name": "E-mini S&P 500 futures",
+      "exchange": "Chicago Mercantile Exchange",
+      "asset_class": "equity",
+      "net_noncommercial_20241022": 22981,
+      "open_interest_20241022": 2186686,
+      "net_pct_oi_20241022": 1.05,
+      "trailing_4wk_net_change_pct_oi": 2.69,
+      "unit": "pct_of_open_interest",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "EURO_FX",
+      "name": "Euro FX futures",
+      "exchange": "Chicago Mercantile Exchange",
+      "asset_class": "fx",
+      "net_noncommercial_20241022": -28524,
+      "open_interest_20241022": 650759,
+      "net_pct_oi_20241022": -4.38,
+      "trailing_4wk_net_change_pct_oi": -15.4,
+      "unit": "pct_of_open_interest",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "GOLD_CMX",
+      "name": "Gold futures",
+      "exchange": "Commodity Exchange (COMEX)",
+      "asset_class": "metals",
+      "net_noncommercial_20241022": 296204,
+      "open_interest_20241022": 573760,
+      "net_pct_oi_20241022": 51.63,
+      "trailing_4wk_net_change_pct_oi": -3.34,
+      "unit": "pct_of_open_interest",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "JPY_CME",
+      "name": "Japanese yen futures",
+      "exchange": "Chicago Mercantile Exchange",
+      "asset_class": "fx",
+      "net_noncommercial_20241022": 12771,
+      "open_interest_20241022": 207338,
+      "net_pct_oi_20241022": 6.16,
+      "trailing_4wk_net_change_pct_oi": -25.68,
+      "unit": "pct_of_open_interest",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "NATGAS_NYMEX",
+      "name": "Henry Hub natural gas futures",
+      "exchange": "New York Mercantile Exchange",
+      "asset_class": "energy",
+      "net_noncommercial_20241022": -166185,
+      "open_interest_20241022": 1644880,
+      "net_pct_oi_20241022": -10.1,
+      "trailing_4wk_net_change_pct_oi": -4.54,
+      "unit": "pct_of_open_interest",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "SILVER_CMX",
+      "name": "Silver futures",
+      "exchange": "Commodity Exchange (COMEX)",
+      "asset_class": "metals",
+      "net_noncommercial_20241022": 66355,
+      "open_interest_20241022": 157264,
+      "net_pct_oi_20241022": 42.19,
+      "trailing_4wk_net_change_pct_oi": 2.64,
+      "unit": "pct_of_open_interest",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "UST_10Y",
+      "name": "U.S. Treasury 10-Year Note futures",
+      "exchange": "Chicago Board of Trade",
+      "asset_class": "rates",
+      "net_noncommercial_20241022": -848191,
+      "open_interest_20241022": 4660932,
+      "net_pct_oi_20241022": -18.2,
+      "trailing_4wk_net_change_pct_oi": 3.8,
+      "unit": "pct_of_open_interest",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "UST_2Y",
+      "name": "U.S. Treasury 2-Year Note futures",
+      "exchange": "Chicago Board of Trade",
+      "asset_class": "rates",
+      "net_noncommercial_20241022": -1380910,
+      "open_interest_20241022": 4544942,
+      "net_pct_oi_20241022": -30.38,
+      "trailing_4wk_net_change_pct_oi": -7.36,
+      "unit": "pct_of_open_interest",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "WTI_NYMEX",
+      "name": "WTI crude oil futures (physical delivery)",
+      "exchange": "New York Mercantile Exchange",
+      "asset_class": "energy",
+      "net_noncommercial_20241022": 173731,
+      "open_interest_20241022": 1648928,
+      "net_pct_oi_20241022": 10.54,
+      "trailing_4wk_net_change_pct_oi": 0.92,
+      "unit": "pct_of_open_interest",
+      "corpus_ref": "corpus/"
+    }
+  ],
+  "notes": "Public-dev practice unit. This unit was retired from the Track 4 scored set because it is memorization-exposed (its outcome resolves on or before the approximate training cutoff of the models under evaluation), which is what makes it safe to publish. It is provided so you can exercise the unit format, the frozen-corpus discipline and the citation/faithfulness requirements end-to-end. No resolved outcome is shipped with it: public-dev units are not scored, and the answer key stays in the private repo. Author-facing design commentary has been removed from this field."
+}

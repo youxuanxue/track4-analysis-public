@@ -1,0 +1,114 @@
+{
+  "task_id": "t4-eps-growth-2024Q3-banks",
+  "schema_version": "3",
+  "family": "eps_growth_regression",
+  "target": {
+    "name": "eps_yoy_growth_pct",
+    "type": "regression"
+  },
+  "prompt": "Using ONLY the frozen evidence corpus (each bank's SEC filings available on or before the 2024-10-10 cutoff), predict for each bank in the table its year-over-year GROWTH in GAAP diluted EPS for the quarter ended September 30, 2024 (reported to the market AFTER the cutoff), expressed as a PERCENT relative to the same quarter one year earlier (prior_year_q_eps is given). For each bank provide a `point_forecast` of that YoY EPS growth in percent and a 90% `interval` around it. Support your reasoning with citations to passages in the frozen corpus (each bank's most recent 10-Q and any 8-Ks). Reason from pre-cutoff drivers — net interest income trends, credit provisions, investment-banking/markets revenue, fees, and expense trends. Do NOT rely on the post-cutoff earnings release; it is absent by design.",
+  "cutoff_date": "2024-10-10",
+  "resolution_date": "2024-10-24",
+  "interval_level": 0.9,
+  "corpus_manifest": "corpus/manifest.json",
+  "faithfulness_rubric": "Every claim must cite a passage from a corpus/ document whose doc_date <= 2024-10-10 (embargo). A roster entity's prediction counts as supported when some cited span entails it above tau_citation = 0.5; the unit is admissible when at least faithfulness_threshold = 0.80 of the ROSTER's predictions are supported -- the denominator is the roster, not the number of claims written. Claims must not assert diluted-EPS figures from the Q3-2024 earnings releases (post-cutoff, absent by design). Failure codes: T4_UNFAITHFUL_CITATION, T4_STALE_EVIDENCE.",
+  "entities": [
+    {
+      "entity_id": "BAC",
+      "name": "Bank of America Corporation",
+      "sector": "Financials",
+      "cik": "0000070858",
+      "quarter_reported": "three months ended 2024-09-30",
+      "prior_year_quarter": "three months ended 2023-09-30",
+      "prior_year_q_eps": 0.9,
+      "expected_report_date": "2024-10-15",
+      "currency": "USD/share",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "C",
+      "name": "Citigroup Inc.",
+      "sector": "Financials",
+      "cik": "0000831001",
+      "quarter_reported": "three months ended 2024-09-30",
+      "prior_year_quarter": "three months ended 2023-09-30",
+      "prior_year_q_eps": 1.63,
+      "expected_report_date": "2024-10-15",
+      "currency": "USD/share",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "GS",
+      "name": "The Goldman Sachs Group, Inc.",
+      "sector": "Financials",
+      "cik": "0000886982",
+      "quarter_reported": "three months ended 2024-09-30",
+      "prior_year_quarter": "three months ended 2023-09-30",
+      "prior_year_q_eps": 5.47,
+      "expected_report_date": "2024-10-15",
+      "currency": "USD/share",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "JPM",
+      "name": "JPMorgan Chase & Co.",
+      "sector": "Financials",
+      "cik": "0000019617",
+      "quarter_reported": "three months ended 2024-09-30",
+      "prior_year_quarter": "three months ended 2023-09-30",
+      "prior_year_q_eps": 4.33,
+      "expected_report_date": "2024-10-11",
+      "currency": "USD/share",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "MS",
+      "name": "Morgan Stanley",
+      "sector": "Financials",
+      "cik": "0000895421",
+      "quarter_reported": "three months ended 2024-09-30",
+      "prior_year_quarter": "three months ended 2023-09-30",
+      "prior_year_q_eps": 1.38,
+      "expected_report_date": "2024-10-16",
+      "currency": "USD/share",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "PNC",
+      "name": "The PNC Financial Services Group, Inc.",
+      "sector": "Financials",
+      "cik": "0000713676",
+      "quarter_reported": "three months ended 2024-09-30",
+      "prior_year_quarter": "three months ended 2023-09-30",
+      "prior_year_q_eps": 3.6,
+      "expected_report_date": "2024-10-15",
+      "currency": "USD/share",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "USB",
+      "name": "U.S. Bancorp",
+      "sector": "Financials",
+      "cik": "0000036104",
+      "quarter_reported": "three months ended 2024-09-30",
+      "prior_year_quarter": "three months ended 2023-09-30",
+      "prior_year_q_eps": 0.91,
+      "expected_report_date": "2024-10-16",
+      "currency": "USD/share",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "WFC",
+      "name": "Wells Fargo & Company",
+      "sector": "Financials",
+      "cik": "0000072971",
+      "quarter_reported": "three months ended 2024-09-30",
+      "prior_year_quarter": "three months ended 2023-09-30",
+      "prior_year_q_eps": 1.48,
+      "expected_report_date": "2024-10-11",
+      "currency": "USD/share",
+      "corpus_ref": "corpus/"
+    }
+  ],
+  "notes": "Public-dev practice unit. This unit was retired from the Track 4 scored set because it is memorization-exposed (its outcome resolves on or before the approximate training cutoff of the models under evaluation), which is what makes it safe to publish. It is provided so you can exercise the unit format, the frozen-corpus discipline and the citation/faithfulness requirements end-to-end. No resolved outcome is shipped with it: public-dev units are not scored, and the answer key stays in the private repo. Author-facing design commentary has been removed from this field."
+}

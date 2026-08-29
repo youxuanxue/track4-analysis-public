@@ -1,0 +1,78 @@
+{
+  "task_id": "t4-fomc-curve-20220728",
+  "schema_version": "3",
+  "family": "rate_curve_cross_section",
+  "target": {
+    "name": "yield_change_bps_intermeeting",
+    "type": "regression"
+  },
+  "prompt": "Using ONLY the frozen evidence corpus (the July 27, 2022 FOMC statement and a compiled rates/macro snapshot as of the 2022-07-28 cutoff), predict for each U.S. Treasury maturity in the table the CHANGE in its constant-maturity yield, in basis points, from the 2022-07-28 cutoff close to the 2022-09-20 resolution close (the trading day before the next FOMC meeting). Each maturity's starting yield (start_yield_pct) is given. For each maturity provide a point_forecast of the yield change in bps and a 90% interval around it. Reason from the pre-cutoff regime: the policy stance sets the direction of the move, while position on the maturity curve sets its magnitude (front-end yields are most sensitive to the expected path of the policy rate; long-end yields are anchored more by long-run growth and inflation expectations). Support every claim with citations to passages in the frozen corpus. Do NOT rely on any post-cutoff yield data; it is absent by design.",
+  "cutoff_date": "2022-07-28",
+  "resolution_date": "2022-09-20",
+  "interval_level": 0.9,
+  "corpus_manifest": "corpus/manifest.json",
+  "faithfulness_rubric": "Every claim must cite a passage from a corpus/ document whose doc_date <= 2022-07-28 (embargo). A roster entity's prediction counts as supported when some cited span entails it above tau_citation = 0.5; the unit is admissible when at least faithfulness_threshold = 0.80 of the ROSTER's predictions are supported -- the denominator is the roster, not the number of claims written. Claims must not assert yield levels or changes observed after the 2022-07-28 cutoff (post-cutoff, absent by design). Failure codes: T4_UNFAITHFUL_CITATION, T4_STALE_EVIDENCE.",
+  "entities": [
+    {
+      "entity_id": "UST10Y",
+      "name": "10-Year U.S. Treasury constant-maturity yield",
+      "maturity_years": 10,
+      "series_fred": "DGS10",
+      "start_yield_pct": 2.68,
+      "as_of": "2022-07-28",
+      "unit": "bps_change",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "UST2Y",
+      "name": "2-Year U.S. Treasury constant-maturity yield",
+      "maturity_years": 2,
+      "series_fred": "DGS2",
+      "start_yield_pct": 2.85,
+      "as_of": "2022-07-28",
+      "unit": "bps_change",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "UST30Y",
+      "name": "30-Year U.S. Treasury constant-maturity yield",
+      "maturity_years": 30,
+      "series_fred": "DGS30",
+      "start_yield_pct": 3.02,
+      "as_of": "2022-07-28",
+      "unit": "bps_change",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "UST3Y",
+      "name": "3-Year U.S. Treasury constant-maturity yield",
+      "maturity_years": 3,
+      "series_fred": "DGS3",
+      "start_yield_pct": 2.81,
+      "as_of": "2022-07-28",
+      "unit": "bps_change",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "UST5Y",
+      "name": "5-Year U.S. Treasury constant-maturity yield",
+      "maturity_years": 5,
+      "series_fred": "DGS5",
+      "start_yield_pct": 2.69,
+      "as_of": "2022-07-28",
+      "unit": "bps_change",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "UST7Y",
+      "name": "7-Year U.S. Treasury constant-maturity yield",
+      "maturity_years": 7,
+      "series_fred": "DGS7",
+      "start_yield_pct": 2.69,
+      "as_of": "2022-07-28",
+      "unit": "bps_change",
+      "corpus_ref": "corpus/"
+    }
+  ],
+  "notes": "Public-dev practice unit. This unit was retired from the Track 4 scored set because it is memorization-exposed (its outcome resolves on or before the approximate training cutoff of the models under evaluation), which is what makes it safe to publish. It is provided so you can exercise the unit format, the frozen-corpus discipline and the citation/faithfulness requirements end-to-end. No resolved outcome is shipped with it: public-dev units are not scored, and the answer key stays in the private repo. Author-facing design commentary has been removed from this field."
+}

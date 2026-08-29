@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qfbench2-track-analysis"
+# 3.0.0 is a BREAKING major, and the break is deliberate: `build_verifier` now constructs a pinned
+# production judge or raises an organizer fault (it previously built none and defaulted
+# faithfulness to 1.0), the entailment hypothesis comes from the submitted prediction rather than
+# from participant-authored claim text, alignment is driven by the trusted entity roster, and an
+# inadmissible unit scores W = -0.27 instead of `None`. A consumer pinned to 2.x must read the
+# "What changed" notes in `qfbench2_track_analysis/scoring.py` before moving. This is also the ONE
+# implementation: the private repo's same-named copy has been deleted.
+version = "3.0.0"
+description = "QFBench 2.0 Track-4 verifier/scorer: qfbench2_track_analysis.scoring.build_verifier(ctx) (rankable, mandatory production judge) and build_smoke_verifier(ctx) (non-rankable preview). The shared faithfulness primitives live in qfbench2-common."
+requires-python = ">=3.13"
+dependencies = [
+  "numpy",
+  "jsonschema",
+  # A MINIMUM, not ==. The scorer imports qfbench2_common.scoring.faithfulness, and the
+  # upload gate reads the dataset answer declarations, so a toolkit older than 2.3.0 is
+  # actively wrong here: v2.3.0 is the first tag carrying qfbench2_common.dataset and the
+  # first where ANSWER_DIRS["coding"] declares checks/ -- before that, stripping a public
+  # Track 1 unit removed nothing. An exact pin would instead break the scoring-image build,
+  # which installs the toolkit from a local checkout; a real run is reproducible by the
+  # image DIGEST, not by this line.
+  #
+  # The <3 is not decoration. This toolkit ships real content across MINOR versions -- 2.2.0 to
+  # 2.3.0 added an entire module -- so a bare >= would admit a 3.x whose breaking changes nobody
+  # has seen yet. ">=2.3.0,<3" states what has actually been tested.
+  #
+  # NOTE: the floor does not fix a cold install. `qfbench2-common` is UNREGISTERED on PyPI
+  # (verified 2026-08-20: pypi.org returns 404), so a clean `pip install .` cannot resolve it from
+  # any index; it works only where the toolkit is already present, as in the scoring image, or via
+  # the explicit git URL CI uses. Registering the name is a separate decision, and it is a
+  # dependency-confusion surface once these repos go public: an unregistered name is one any third
+  # party can claim and publish under.
+  "qfbench2-common>=2.3.0,<3",
+]
+
+[tool.setuptools]
+packages = ["qfbench2_track_analysis"]

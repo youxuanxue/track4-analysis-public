@@ -1,0 +1,21 @@
+{
+  "_comment": "EXAMPLE manifest.json — the canonical per-file CHECKSUM manifest (manifest.schema.json), placed at the UNIT ROOT. An entry per file the manifest covers, each with a real sha256 and byte count; verify_manifest checks exactly in both directions over the subtrees the entries span. Corpus document metadata (doc_date, form_type, ticker) lives in each corpus document and in task.json, NOT here: verify_manifest expects files[], and a documents[]-style corpus index in a file named manifest.json fails verification. Not authoritative: the shipped exemplar is units/t4-EXAMPLE-eps-beat/manifest.json.",
+  "manifest_version": "2.0",
+  "unit_id": "t4-REPLACE-slug",
+  "generated_by": "REPLACE (author or script)",
+  "files": [
+    {
+      "path": "corpus/REPLACE_DOC_ID.json",
+      "role": "corpus",
+      "source": "REPLACE: provenance label",
+      "license": "REPLACE: licence of this document",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "bytes": 0,
+      "split": "public-dev",
+      "cutoff": "YYYY-MM-DD",
+      "redistributable": true,
+      "pii_stripped": true
+    }
+  ],
+  "notes": "Replace every sha256/bytes with the real values. The embargo gate reads doc_date from each corpus document, not from this file."
+}

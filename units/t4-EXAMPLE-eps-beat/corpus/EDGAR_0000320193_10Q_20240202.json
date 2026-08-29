@@ -1,0 +1,13 @@
+{
+ "doc_id": "EDGAR_0000320193_10Q_20240202",
+ "source": "EDGAR-CORPUS",
+ "form_type": "10-Q",
+ "filed_date": "2024-02-02",
+ "doc_date": "2024-02-02",
+ "ticker": "AAPL",
+ "cik": "0000320193",
+ "title": "Apple Inc. Form 10-Q for Quarter Ended December 30, 2023",
+ "pii_stripped": true,
+ "note": "This is a representative excerpt for the public exemplar. Full filing available via EDGAR-CORPUS.",
+ "text": "Apple Inc. reports net sales of $119.6 billion for the three months ended December 30, 2023, compared to $117.2 billion for the three months ended December 31, 2022, an increase of approximately 2%. Diluted earnings per share were $2.18, compared to $1.88 in the same quarter of the prior year. Services net sales were $23.1 billion for the three months ended December 30, 2023, an increase of $2.3 billion, or 11.3%, year over year. Services gross margin percentage was 72.8%, reflecting continued operational leverage as subscription revenue scale increases across the App Store, Apple Music, iCloud, and Apple TV+ offerings. iPhone net sales were $69.7 billion for the three months ended December 30, 2023, compared to $65.8 billion in the prior year period. Management noted resilient demand in emerging markets, particularly India and Southeast Asia, which offset moderation in China. The iPhone 15 Pro and Pro Max models achieved higher average selling prices than their predecessors. Looking forward to the March quarter, the Company expects revenue to be similar to the December quarter on a year-over-year basis. Foreign exchange headwinds are expected to be approximately negative 2.5 percentage points to year-over-year revenue growth. Services is expected to continue its growth trajectory, with management guiding to double-digit year-over-year growth."
+}

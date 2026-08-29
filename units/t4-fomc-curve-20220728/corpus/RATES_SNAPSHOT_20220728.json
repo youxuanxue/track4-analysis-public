@@ -1,0 +1,12 @@
+{
+  "doc_id": "RATES_SNAPSHOT_20220728",
+  "source": "compiled_public_data",
+  "form_type": "rates_market_snapshot",
+  "filed_date": "2022-07-28",
+  "doc_date": "2022-07-28",
+  "period_of_report": "2022-07-28",
+  "title": "Rates and macro snapshot as of the 2022-07-28 close",
+  "url": "",
+  "pii_stripped": true,
+  "text": "Rates and macro snapshot as of the 2022-07-28 close. Compiled from public sources: U.S. Treasury constant-maturity yields (FRED DGS1, DGS2, DGS3, DGS5, DGS7, DGS10, DGS20, DGS30). All levels are as of the 2022-07-28 close.\n\nMonetary policy. On 2022-07-27 the Federal Open Market Committee raised the target range for the federal funds rate to 2-1/4 to 2-1/2 percent, its second consecutive 75 basis point increase, and signaled that ongoing increases would be appropriate. Inflation remained elevated and the Committee described itself as highly attentive to inflation risks.\n\nTreasury yields (constant maturity). The 2-year Treasury yield was 2.85 percent. The 3-year Treasury yield was 2.81 percent. The 5-year Treasury yield was 2.69 percent. The 7-year Treasury yield was 2.69 percent. The 10-year Treasury yield was 2.68 percent. The 30-year Treasury yield was 3.02 percent. The 1-year Treasury yield was 2.93 percent.\n\nCurve shape. The curve was flat-to-inverted at the front: the 2-year yield sat above the 10-year yield, a 2s10s spread of about -17 basis points, reflecting a policy rate being pushed up faster than long-run growth and inflation expectations. Front-end yields are the most sensitive to the expected path of the federal funds rate, while long-end yields are anchored more by long-run growth and inflation expectations.\n\nTrailing context. Yields had fallen from their mid-June 2022 highs into late July as recession concerns grew: at the 2022-06-16 close the 2-year yield was 3.14 percent and the 10-year 3.28 percent, versus 2.85 and 2.68 percent now."
+}

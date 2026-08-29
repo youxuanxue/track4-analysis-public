@@ -1,0 +1,95 @@
+{
+  "task_id": "t4-auction-btc-202411-us7",
+  "schema_version": "3",
+  "family": "auction_demand",
+  "target": {
+    "name": "bid_to_cover_ratio",
+    "type": "regression"
+  },
+  "prompt": "Using ONLY the frozen evidence corpus (TreasuryDirect auction-results tables for seven nominal coupon tenors, October 2023 through October 2024, plus the announced November-2024 auction terms as of the 2024-10-31 cutoff), predict for each November-2024 U.S. Treasury coupon auction in the table its BID-TO-COVER RATIO (total bids tendered divided by amount accepted). Reason from each tenor's own auction history (level and trend of bid-to-cover, sensitivity to auction size, new-issue vs reopening months, indirect-bidder participation) and from the announced sizes and scheduled events in the window. For each auction provide a point_forecast of the bid-to-cover ratio and a 90% interval around it. Support every claim with citations to passages in the frozen corpus. Do NOT rely on post-cutoff auction results; they are absent by design.",
+  "cutoff_date": "2024-10-31",
+  "resolution_date": "2024-11-27",
+  "interval_level": 0.9,
+  "corpus_manifest": "corpus/manifest.json",
+  "faithfulness_rubric": "Every claim must cite a passage from a corpus/ document whose doc_date <= 2024-10-31 (embargo). A roster entity's prediction counts as supported when some cited span entails it above tau_citation = 0.5; the unit is admissible when at least faithfulness_threshold = 0.80 of the ROSTER's predictions are supported -- the denominator is the roster, not the number of claims written. Claims must not assert post-cutoff auction results (absent by design). Failure codes: T4_UNFAITHFUL_CITATION, T4_STALE_EVIDENCE.",
+  "entities": [
+    {
+      "entity_id": "AUC_10Y_20241105",
+      "name": "10-Year Note auction, 2024-11-05",
+      "tenor": "10-Year",
+      "auction_date": "2024-11-05",
+      "new_or_reopening": "new",
+      "offering_amount_usd_bn": 42.0,
+      "size_announced_precutoff": true,
+      "unit": "bid_to_cover_ratio",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "AUC_20Y_20241120",
+      "name": "20-Year Bond auction, week of 2024-11-18",
+      "tenor": "20-Year",
+      "auction_date": "2024-11-20",
+      "new_or_reopening": "new",
+      "offering_amount_usd_bn": null,
+      "size_announced_precutoff": false,
+      "unit": "bid_to_cover_ratio",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "AUC_2Y_20241125",
+      "name": "2-Year Note auction, week of 2024-11-25",
+      "tenor": "2-Year",
+      "auction_date": "2024-11-25",
+      "new_or_reopening": "new",
+      "offering_amount_usd_bn": null,
+      "size_announced_precutoff": false,
+      "unit": "bid_to_cover_ratio",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "AUC_30Y_20241106",
+      "name": "30-Year Bond auction, 2024-11-06",
+      "tenor": "30-Year",
+      "auction_date": "2024-11-06",
+      "new_or_reopening": "new",
+      "offering_amount_usd_bn": 25.0,
+      "size_announced_precutoff": true,
+      "unit": "bid_to_cover_ratio",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "AUC_3Y_20241104",
+      "name": "3-Year Note auction, 2024-11-04",
+      "tenor": "3-Year",
+      "auction_date": "2024-11-04",
+      "new_or_reopening": "new",
+      "offering_amount_usd_bn": 58.0,
+      "size_announced_precutoff": true,
+      "unit": "bid_to_cover_ratio",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "AUC_5Y_20241126",
+      "name": "5-Year Note auction, week of 2024-11-25",
+      "tenor": "5-Year",
+      "auction_date": "2024-11-26",
+      "new_or_reopening": "new",
+      "offering_amount_usd_bn": null,
+      "size_announced_precutoff": false,
+      "unit": "bid_to_cover_ratio",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "AUC_7Y_20241127",
+      "name": "7-Year Note auction, week of 2024-11-25",
+      "tenor": "7-Year",
+      "auction_date": "2024-11-27",
+      "new_or_reopening": "new",
+      "offering_amount_usd_bn": null,
+      "size_announced_precutoff": false,
+      "unit": "bid_to_cover_ratio",
+      "corpus_ref": "corpus/"
+    }
+  ],
+  "notes": "Public-dev practice unit. This unit was retired from the Track 4 scored set because it is memorization-exposed (its outcome resolves on or before the approximate training cutoff of the models under evaluation), which is what makes it safe to publish. It is provided so you can exercise the unit format, the frozen-corpus discipline and the citation/faithfulness requirements end-to-end. No resolved outcome is shipped with it: public-dev units are not scored, and the answer key stays in the private repo. Author-facing design commentary has been removed from this field."
+}

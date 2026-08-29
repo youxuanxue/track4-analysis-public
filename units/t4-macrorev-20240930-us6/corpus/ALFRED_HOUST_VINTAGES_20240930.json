@@ -1,0 +1,11 @@
+{
+  "doc_id": "ALFRED_HOUST_VINTAGES_20240930",
+  "source": "ALFRED",
+  "doc_type": "vintage_table",
+  "series_id": "HOUST",
+  "doc_date": "2024-09-18",
+  "title": "HOUST (New Privately-Owned Housing Units Started) \u2014 real-time vintage table of 2024 estimates as of 2024-09-18",
+  "url": "https://alfred.stlouisfed.org/series?seid=HOUST",
+  "pii_stripped": true,
+  "text": "HOUST \u2014 New Privately-Owned Housing Units Started\nSource: ALFRED (Federal Reserve Bank of St. Louis archival FRED), series HOUST. Underlying data: U.S. Census Bureau. Units: thousands of units, SAAR.\nRevision schedule: first estimate mid-month; revised in each of the next two monthly releases.\n\nVINTAGE TABLE \u2014 the value of HOUST for each reference month exactly as published on each pre-cutoff release (vintage) date. Reading across a row shows how the estimate for that month was revised in later releases.\n\nreference_month | as_of_2024-06-20 | as_of_2024-07-17 | as_of_2024-08-16 | as_of_2024-09-18\n2024-01 | 1376.0 | 1376.0 | 1376.0 | 1376.0\n2024-02 | 1546.0 | 1546.0 | 1546.0 | 1546.0\n2024-03 | 1299.0 | 1299.0 | 1299.0 | 1299.0\n2024-04 | 1352.0 | 1377.0 | 1377.0 | 1377.0\n2024-05 | 1277.0 | 1314.0 | 1315.0 | 1315.0\n2024-06 | -- | 1353.0 | 1329.0 | 1329.0\n2024-07 | -- | -- | 1238.0 | 1237.0\n2024-08 | -- | -- | -- | 1356.0\n\nREVISION NOTES (derived from the vintage table above):\n- The 2024-04 estimate was revised UP from 1352.0 (as of 2024-06-20) to 1377.0 (as of 2024-07-17).\n- The 2024-05 estimate was revised UP from 1277.0 (as of 2024-06-20) to 1314.0 (as of 2024-07-17).\n- The 2024-05 estimate was revised UP from 1314.0 (as of 2024-07-17) to 1315.0 (as of 2024-08-16).\n- The 2024-06 estimate was revised DOWN from 1353.0 (as of 2024-07-17) to 1329.0 (as of 2024-08-16).\n- The 2024-07 estimate was revised DOWN from 1238.0 (as of 2024-08-16) to 1237.0 (as of 2024-09-18).\n"
+}

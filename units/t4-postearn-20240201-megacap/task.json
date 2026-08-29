@@ -1,0 +1,59 @@
+{
+  "task_id": "t4-postearn-20240201-megacap",
+  "schema_version": "3",
+  "family": "post_earnings_reaction",
+  "target": {
+    "name": "earnings_reaction",
+    "type": "classification",
+    "labels": [
+      "positive_reaction",
+      "negative_reaction",
+      "flat"
+    ]
+  },
+  "prompt": "Using ONLY the frozen evidence corpus (each company's most recent SEC filings available on or before the 2024-01-31 cutoff), predict for each company in the table the market-adjusted stock reaction to its 2024-02-01 after-close quarterly earnings release. The reaction is the one-day ABNORMAL return = (company total return from the 2024-02-01 close to the 2024-02-02 close) minus the SPY return over the same window. Label 'positive_reaction' if the abnormal return is greater than +1%, 'negative_reaction' if less than -1%, otherwise 'flat'. Report a 90% interval on the abnormal return (%) for each company, and support every prediction with citations to passages in the frozen corpus.",
+  "cutoff_date": "2024-01-31",
+  "resolution_date": "2024-02-02",
+  "interval_level": 0.9,
+  "corpus_manifest": "corpus/manifest.json",
+  "faithfulness_rubric": "Every claim must cite a passage from a corpus/ document whose doc_date <= 2024-01-31 (embargo). A roster entity's prediction counts as supported when some cited span entails it above tau_citation = 0.5; the unit is admissible when at least faithfulness_threshold = 0.80 of the ROSTER's predictions are supported -- the denominator is the roster, not the number of claims written. Claims must not assert results from the 2024-02-01 earnings release itself (that evidence is post-cutoff and absent by design).",
+  "entities": [
+    {
+      "entity_id": "AAPL",
+      "name": "Apple Inc.",
+      "sector": "Information Technology",
+      "cik": "0000320193",
+      "report_datetime": "2024-02-01 after close",
+      "event_window": "2024-02-01 close -> 2024-02-02 close",
+      "benchmark": "SPY",
+      "pre_earnings_close_2024_01_31": 184.4,
+      "flat_threshold_abn_pct": 1.0,
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "AMZN",
+      "name": "Amazon.com, Inc.",
+      "sector": "Consumer Discretionary",
+      "cik": "0001018724",
+      "report_datetime": "2024-02-01 after close",
+      "event_window": "2024-02-01 close -> 2024-02-02 close",
+      "benchmark": "SPY",
+      "pre_earnings_close_2024_01_31": 155.2,
+      "flat_threshold_abn_pct": 1.0,
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "META",
+      "name": "Meta Platforms, Inc.",
+      "sector": "Communication Services",
+      "cik": "0001326801",
+      "report_datetime": "2024-02-01 after close",
+      "event_window": "2024-02-01 close -> 2024-02-02 close",
+      "benchmark": "SPY",
+      "pre_earnings_close_2024_01_31": 390.14,
+      "flat_threshold_abn_pct": 1.0,
+      "corpus_ref": "corpus/"
+    }
+  ],
+  "notes": "Public-dev practice unit. This unit was retired from the Track 4 scored set because it is memorization-exposed (its outcome resolves on or before the approximate training cutoff of the models under evaluation), which is what makes it safe to publish. It is provided so you can exercise the unit format, the frozen-corpus discipline and the citation/faithfulness requirements end-to-end. No resolved outcome is shipped with it: public-dev units are not scored, and the answer key stays in the private repo. Author-facing design commentary has been removed from this field."
+}

@@ -1,0 +1,58 @@
+{
+  "manifest_version": "2.0",
+  "unit_id": "t4-fomc-curve-20220728",
+  "generated_by": "scripts/build_public_dev_set.py",
+  "files": [
+    {
+      "path": "card.toml",
+      "role": "input",
+      "license": "CC-BY-4.0",
+      "sha256": "583d8a15641616a0da18945a033b37c12bfc4b210a976c34c1e2b89398a13ee8",
+      "bytes": 3996,
+      "split": "public-dev",
+      "redistributable": true
+    },
+    {
+      "path": "task.json",
+      "role": "input",
+      "license": "CC-BY-4.0",
+      "sha256": "bc763a179cee45d305f9cdab2923816378aed4178aba6f036e0a4dde7a0b8f0b",
+      "bytes": 4169,
+      "split": "public-dev",
+      "redistributable": true
+    },
+    {
+      "path": "corpus/FOMC_STATEMENT_20220727.json",
+      "role": "corpus",
+      "license": "Public domain (US government work: Federal Reserve Board / FOMC statements and minutes).",
+      "sha256": "0c94cb8355516a7bc4e9efc6ec9956957f8d2caee1b16f53595665d9572605e9",
+      "bytes": 2568,
+      "split": "public-dev",
+      "redistributable": true,
+      "cutoff": "2022-07-28",
+      "pii_stripped": true,
+      "source": "FederalReserve"
+    },
+    {
+      "path": "corpus/RATES_SNAPSHOT_20220728.json",
+      "role": "corpus",
+      "license": "Public domain (US government works: Federal Reserve H.15 / U.S. Treasury constant-maturity series), compiled from public releases.",
+      "sha256": "9c917121c9171408c2813d2b0a897532cda1b1de9e4df3a68bcc9aa3ff6359ef",
+      "bytes": 1912,
+      "split": "public-dev",
+      "redistributable": true,
+      "cutoff": "2022-07-28",
+      "pii_stripped": true,
+      "source": "compiled_public_data"
+    },
+    {
+      "path": "corpus/manifest.json",
+      "role": "input",
+      "license": "CC-BY-4.0",
+      "sha256": "23dcd910cee82c19788656b3300be9ec387445abff14e2d18c17c638f82b8b09",
+      "bytes": 1099,
+      "split": "public-dev",
+      "redistributable": true
+    }
+  ]
+}

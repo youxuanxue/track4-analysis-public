@@ -1,0 +1,139 @@
+{
+  "task_id": "t4-cpicomp-202410-us11",
+  "schema_version": "3",
+  "family": "cpi_component_nowcast",
+  "target": {
+    "name": "cpi_component_mom_first_print",
+    "type": "regression"
+  },
+  "prompt": "Using ONLY the frozen evidence corpus (the CPI component vintage table as published as of 2024-10-31, the BLS September-2024 CPI news release, and weekly retail gasoline prices through 2024-10-28), predict for each CPI-U component in the table its seasonally adjusted month-over-month percent change for OCTOBER 2024 as FIRST PUBLISHED in the 2024-11-13 BLS release. The latest published (September) month-over-month change for each component is given. Reason from component-level dynamics visible pre-cutoff: shelter's persistence, the gasoline pass-through from October pump prices (in the corpus), the volatility of apparel and used-vehicle prices, and the stability of medical care. For each component provide a point_forecast (percent, e.g. +0.30) and a 90% interval. Support every claim with citations to passages in the frozen corpus. Do NOT use post-cutoff data or the current (revised) CPI series; they are absent by design.",
+  "cutoff_date": "2024-10-31",
+  "resolution_date": "2024-11-13",
+  "interval_level": 0.9,
+  "corpus_manifest": "corpus/manifest.json",
+  "faithfulness_rubric": "Every claim must cite a passage from a corpus/ document whose doc_date <= 2024-10-31 (embargo). A roster entity's prediction counts as supported when some cited span entails it above tau_citation = 0.5; the unit is admissible when at least faithfulness_threshold = 0.80 of the ROSTER's predictions are supported -- the denominator is the roster, not the number of claims written. Claims must not assert October-2024 CPI values (post-cutoff, absent by design). Failure codes: T4_UNFAITHFUL_CITATION, T4_STALE_EVIDENCE.",
+  "entities": [
+    {
+      "entity_id": "CPI_ALLITEMS",
+      "name": "All items (headline CPI)",
+      "series_fred": "CPIAUCSL",
+      "ref_month": "2024-10",
+      "latest_published_mom_pct": 0.18,
+      "latest_published_ref_month": "2024-09",
+      "release_date": "2024-11-13",
+      "unit": "mom_pct_change_sa",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "CPI_APPAREL",
+      "name": "Apparel",
+      "series_fred": "CPIAPPSL",
+      "ref_month": "2024-10",
+      "latest_published_mom_pct": 1.14,
+      "latest_published_ref_month": "2024-09",
+      "release_date": "2024-11-13",
+      "unit": "mom_pct_change_sa",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "CPI_CORE",
+      "name": "All items less food and energy (core CPI)",
+      "series_fred": "CPILFESL",
+      "ref_month": "2024-10",
+      "latest_published_mom_pct": 0.31,
+      "latest_published_ref_month": "2024-09",
+      "release_date": "2024-11-13",
+      "unit": "mom_pct_change_sa",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "CPI_ENERGY",
+      "name": "Energy",
+      "series_fred": "CPIENGSL",
+      "ref_month": "2024-10",
+      "latest_published_mom_pct": -1.85,
+      "latest_published_ref_month": "2024-09",
+      "release_date": "2024-11-13",
+      "unit": "mom_pct_change_sa",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "CPI_FOOD",
+      "name": "Food",
+      "series_fred": "CPIUFDSL",
+      "ref_month": "2024-10",
+      "latest_published_mom_pct": 0.4,
+      "latest_published_ref_month": "2024-09",
+      "release_date": "2024-11-13",
+      "unit": "mom_pct_change_sa",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "CPI_GASOLINE",
+      "name": "Gasoline (all types)",
+      "series_fred": "CUSR0000SETB01",
+      "ref_month": "2024-10",
+      "latest_published_mom_pct": -4.1,
+      "latest_published_ref_month": "2024-09",
+      "release_date": "2024-11-13",
+      "unit": "mom_pct_change_sa",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "CPI_MEDICAL",
+      "name": "Medical care",
+      "series_fred": "CPIMEDSL",
+      "ref_month": "2024-10",
+      "latest_published_mom_pct": 0.41,
+      "latest_published_ref_month": "2024-09",
+      "release_date": "2024-11-13",
+      "unit": "mom_pct_change_sa",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "CPI_NEWVEH",
+      "name": "New vehicles",
+      "series_fred": "CUSR0000SETA01",
+      "ref_month": "2024-10",
+      "latest_published_mom_pct": 0.15,
+      "latest_published_ref_month": "2024-09",
+      "release_date": "2024-11-13",
+      "unit": "mom_pct_change_sa",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "CPI_SHELTER",
+      "name": "Shelter",
+      "series_fred": "CUSR0000SAH1",
+      "ref_month": "2024-10",
+      "latest_published_mom_pct": 0.22,
+      "latest_published_ref_month": "2024-09",
+      "release_date": "2024-11-13",
+      "unit": "mom_pct_change_sa",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "CPI_TRANSPSVC",
+      "name": "Transportation services",
+      "series_fred": "CUSR0000SAS4",
+      "ref_month": "2024-10",
+      "latest_published_mom_pct": 1.35,
+      "latest_published_ref_month": "2024-09",
+      "release_date": "2024-11-13",
+      "unit": "mom_pct_change_sa",
+      "corpus_ref": "corpus/"
+    },
+    {
+      "entity_id": "CPI_USEDCARS",
+      "name": "Used cars and trucks",
+      "series_fred": "CUSR0000SETA02",
+      "ref_month": "2024-10",
+      "latest_published_mom_pct": 0.31,
+      "latest_published_ref_month": "2024-09",
+      "release_date": "2024-11-13",
+      "unit": "mom_pct_change_sa",
+      "corpus_ref": "corpus/"
+    }
+  ],
+  "notes": "Public-dev practice unit. This unit was retired from the Track 4 scored set because it is memorization-exposed (its outcome resolves on or before the approximate training cutoff of the models under evaluation), which is what makes it safe to publish. It is provided so you can exercise the unit format, the frozen-corpus discipline and the citation/faithfulness requirements end-to-end. No resolved outcome is shipped with it: public-dev units are not scored, and the answer key stays in the private repo. Author-facing design commentary has been removed from this field."
+}

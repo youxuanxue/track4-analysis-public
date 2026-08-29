@@ -1,0 +1,10 @@
+{
+  "doc_id": "MKT_SNAPSHOT_20241031",
+  "source": "FRED",
+  "doc_type": "market_snapshot",
+  "doc_date": "2024-10-31",
+  "title": "Market and macro snapshot as of 2024-10-31 (rates, dollar, oil, gas, equities, VIX)",
+  "url": "https://fred.stlouisfed.org/",
+  "pii_stripped": true,
+  "text": "U.S. market and macro snapshot as of the 2024-10-31 cutoff (latest daily data 2024-10-30; earlier columns give the trailing trend).\nSource: FRED, Federal Reserve Bank of St. Louis (series DGS2, DGS10, VIXCLS, DTWEXBGS, DCOILWTICO, DHHNGSP, SP500, DEXJPUS, DEXUSEU); underlying data from the Federal Reserve H.15 and H.10 releases, Cboe, EIA, and S&P Dow Jones Indices.\n\nseries | 2024-07-31 | 2024-09-30 | 2024-10-30\n2-year Treasury yield (DGS2, %) | 4.29 | 3.66 | 4.15\n10-year Treasury yield (DGS10, %) | 4.09 | 3.81 | 4.29\nCboe VIX index (VIXCLS) | 16.36 | 16.73 | 20.35\nBroad dollar index (DTWEXBGS) | 123.64 | 121.29 | 124.82\nWTI crude oil spot (DCOILWTICO, $/bbl) | 79.36 | 68.75 | 68.91\nHenry Hub natural gas spot (DHHNGSP, $/MMBtu) | 1.94 | 2.65 | 2.03\nS&P 500 index (SP500) | 5,522.30 | 5,762.48 | 5,813.67\nJapanese yen per dollar (DEXJPUS) | 150.38 | 143.25 | 153.15\nDollars per euro (DEXUSEU) | 1.0823 | 1.1145 | 1.0864\n\nNOTES (derived from the table above):\n- Between 2024-09-30 and 2024-10-30, the 2-year Treasury yield rose from 3.66% to 4.15% and the 10-year from 3.81% to 4.29% \u2014 a sharp October backup in yields after the September Fed rate cut.\n- The broad dollar index rose from 121.29 to 124.82 over October, and the yen weakened from 143.25 to 153.15 per dollar.\n- The VIX rose from 16.73 on 2024-09-30 to 20.35 on 2024-10-30, an elevated level consistent with hedging demand ahead of the 2024-11-05 U.S. general election.\n- WTI crude was roughly flat over October near $69/bbl, well below its late-July level near $79; Henry Hub natural gas at $2.03 was off its September level (2.65) but above its late-July low ($1.94).\n- The S&P 500 was near record levels at 5,813.67 on 2024-10-30, up from 5,522.30 at the end of July.\n"
+}

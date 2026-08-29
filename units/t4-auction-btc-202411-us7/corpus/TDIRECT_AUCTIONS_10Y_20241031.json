@@ -1,0 +1,10 @@
+{
+  "doc_id": "TDIRECT_AUCTIONS_10Y_20241031",
+  "source": "TreasuryDirect",
+  "doc_type": "auction_history_table",
+  "doc_date": "2024-10-09",
+  "title": "Treasury 10-Year Note (new issues and reopenings) auction results, Oct-2023 to Oct-2024",
+  "url": "https://www.treasurydirect.gov/TA_WS/securities/search?format=json",
+  "pii_stripped": true,
+  "text": "U.S. Treasury 10-Year Note (new issues and reopenings) auctions \u2014 results from October 2023 through October 2024.\nSource: TreasuryDirect auction results API (www.treasurydirect.gov/TA_WS/securities/search), U.S. Department of the Treasury, public domain. Bid-to-cover ratio = total competitive and noncompetitive bids tendered divided by total accepted; indirect share = indirect bidder accepted / competitive accepted (a proxy for foreign and investment-fund demand).\n\nauction_date | term | new/reopen | offering_$B | bid_to_cover | high_yield_% | indirect_share_%\n2023-10-11 | 9-Year 10-Month | reopen | 35.0 | 2.50 | 4.61 | 60.3\n2023-11-08 | 10-Year | new | 40.0 | 2.45 | 4.519 | 69.7\n2023-12-11 | 9-Year 11-Month | reopen | 37.0 | 2.53 | 4.296 | 63.8\n2024-01-10 | 9-Year 10-Month | reopen | 37.0 | 2.56 | 4.024 | 66.1\n2024-02-07 | 10-Year | new | 42.0 | 2.56 | 4.093 | 71.0\n2024-03-12 | 9-Year 11-Month | reopen | 39.0 | 2.51 | 4.166 | 64.3\n2024-04-10 | 9-Year 10-Month | reopen | 39.0 | 2.34 | 4.56 | 61.8\n2024-05-08 | 10-Year | new | 42.0 | 2.49 | 4.483 | 65.5\n2024-06-11 | 9-Year 11-Month | reopen | 39.0 | 2.67 | 4.438 | 74.6\n2024-07-10 | 9-Year 10-Month | reopen | 39.0 | 2.58 | 4.276 | 67.6\n2024-08-07 | 10-Year | new | 42.0 | 2.32 | 3.96 | 66.2\n2024-09-11 | 9-Year 11-Month | reopen | 39.0 | 2.64 | 3.648 | 76.0\n2024-10-09 | 9-Year 10-Month | reopen | 39.0 | 2.48 | 4.066 | 77.6\n\nNOTES (derived from the table above): across the 13 auctions shown, the bid-to-cover ratio ranged from 2.32 to 2.67; the average over the six most recent auctions is 2.530. The most recent auction (2024-10-09) drew a bid-to-cover of 2.48.\n"
+}

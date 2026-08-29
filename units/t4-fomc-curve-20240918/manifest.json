@@ -1,0 +1,70 @@
+{
+  "manifest_version": "2.0",
+  "unit_id": "t4-fomc-curve-20240918",
+  "generated_by": "scripts/build_public_dev_set.py",
+  "files": [
+    {
+      "path": "card.toml",
+      "role": "input",
+      "license": "CC-BY-4.0",
+      "sha256": "d134dec61208746df40aef180886b4973d443a6a9c1b2e069181be85a37bc4b5",
+      "bytes": 4127,
+      "split": "public-dev",
+      "redistributable": true
+    },
+    {
+      "path": "task.json",
+      "role": "input",
+      "license": "CC-BY-4.0",
+      "sha256": "802a3039ad05a327d367fc4a42d351818cb3a3b40abf693519590900aab77fdf",
+      "bytes": 4231,
+      "split": "public-dev",
+      "redistributable": true
+    },
+    {
+      "path": "corpus/FOMC_SEP_20240918.json",
+      "role": "corpus",
+      "license": "Public domain (US government work: Federal Reserve Board / FOMC statements and minutes).",
+      "sha256": "9193d7332a8d455db0faa470f261a3f5a9fb8dde2de3eeeb4a35a754788f593b",
+      "bytes": 9303,
+      "split": "public-dev",
+      "redistributable": true,
+      "cutoff": "2024-09-19",
+      "pii_stripped": true,
+      "source": "FederalReserve"
+    },
+    {
+      "path": "corpus/FOMC_STATEMENT_20240918.json",
+      "role": "corpus",
+      "license": "Public domain (US government work: Federal Reserve Board / FOMC statements and minutes).",
+      "sha256": "99f1cf71a58aba426d83e08fe542474ef018019023e8098ce623c265a3c14f8c",
+      "bytes": 2941,
+      "split": "public-dev",
+      "redistributable": true,
+      "cutoff": "2024-09-19",
+      "pii_stripped": true,
+      "source": "FederalReserve"
+    },
+    {
+      "path": "corpus/RATES_SNAPSHOT_20240919.json",
+      "role": "corpus",
+      "license": "Public domain (US government works: Federal Reserve H.15 / U.S. Treasury constant-maturity series), compiled from public releases.",
+      "sha256": "c2727fb28b0839a9fd3cd4fe145f3e0c3b88bb0ca5660984286dd60b141081ac",
+      "bytes": 2795,
+      "split": "public-dev",
+      "redistributable": true,
+      "cutoff": "2024-09-19",
+      "pii_stripped": true,
+      "source": "compiled_public_data"
+    },
+    {
+      "path": "corpus/manifest.json",
+      "role": "input",
+      "license": "CC-BY-4.0",
+      "sha256": "daf0d83ec59a069bc61581810420358ac82673064f4e554f191df7183e1d2297",
+      "bytes": 1548,
+      "split": "public-dev",
+      "redistributable": true
+    }
+  ]
+}

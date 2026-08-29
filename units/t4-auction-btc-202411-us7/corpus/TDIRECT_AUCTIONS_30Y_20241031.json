@@ -1,0 +1,10 @@
+{
+  "doc_id": "TDIRECT_AUCTIONS_30Y_20241031",
+  "source": "TreasuryDirect",
+  "doc_type": "auction_history_table",
+  "doc_date": "2024-10-10",
+  "title": "Treasury 30-Year Bond (new issues and reopenings) auction results, Oct-2023 to Oct-2024",
+  "url": "https://www.treasurydirect.gov/TA_WS/securities/search?format=json",
+  "pii_stripped": true,
+  "text": "U.S. Treasury 30-Year Bond (new issues and reopenings) auctions \u2014 results from October 2023 through October 2024.\nSource: TreasuryDirect auction results API (www.treasurydirect.gov/TA_WS/securities/search), U.S. Department of the Treasury, public domain. Bid-to-cover ratio = total competitive and noncompetitive bids tendered divided by total accepted; indirect share = indirect bidder accepted / competitive accepted (a proxy for foreign and investment-fund demand).\n\nauction_date | term | new/reopen | offering_$B | bid_to_cover | high_yield_% | indirect_share_%\n2023-10-12 | 29-Year 10-Month | reopen | 20.0 | 2.35 | 4.837 | 65.1\n2023-11-09 | 30-Year | new | 24.0 | 2.24 | 4.769 | 60.1\n2023-12-12 | 29-Year 11-Month | reopen | 21.0 | 2.43 | 4.344 | 68.5\n2024-01-11 | 29-Year 10-Month | reopen | 21.0 | 2.37 | 4.229 | 67.8\n2024-02-08 | 30-Year | new | 25.0 | 2.40 | 4.36 | 70.7\n2024-03-13 | 29-Year 11-Month | reopen | 22.0 | 2.47 | 4.331 | 69.3\n2024-04-11 | 29-Year 10-Month | reopen | 22.0 | 2.37 | 4.671 | 64.4\n2024-05-09 | 30-Year | new | 25.0 | 2.41 | 4.635 | 64.9\n2024-06-13 | 29-Year 11-Month | reopen | 22.0 | 2.49 | 4.403 | 68.5\n2024-07-11 | 29-Year 10-Month | reopen | 22.0 | 2.30 | 4.405 | 60.8\n2024-08-08 | 30-Year | new | 25.0 | 2.31 | 4.314 | 65.3\n2024-09-12 | 29-Year 11-Month | reopen | 22.0 | 2.38 | 4.015 | 68.7\n2024-10-10 | 29-Year 10-Month | reopen | 22.0 | 2.50 | 4.389 | 80.5\n\nNOTES (derived from the table above): across the 13 auctions shown, the bid-to-cover ratio ranged from 2.24 to 2.50; the average over the six most recent auctions is 2.398. The most recent auction (2024-10-10) drew a bid-to-cover of 2.50.\n"
+}

@@ -1,0 +1,178 @@
+{
+  "manifest_version": "2.0",
+  "unit_id": "t4-cotpos-202411-us10",
+  "generated_by": "scripts/build_public_dev_set.py",
+  "files": [
+    {
+      "path": "card.toml",
+      "role": "input",
+      "license": "Public domain (US government works: U.S. Commodity Futures Trading Commission, Commitments of Traders reports)",
+      "sha256": "fc26abf0091464654081b53b0ac2aec431bbc197a2445e1ed57be6533dc1f7cf",
+      "bytes": 4268,
+      "split": "public-dev",
+      "redistributable": true
+    },
+    {
+      "path": "task.json",
+      "role": "input",
+      "license": "Public domain (US government works: U.S. Commodity Futures Trading Commission, Commitments of Traders reports)",
+      "sha256": "9946b3514e356f14fda845a8ee38a5a77adf93e378418752b97ba4172c91a13d",
+      "bytes": 6693,
+      "split": "public-dev",
+      "redistributable": true
+    },
+    {
+      "path": "corpus/COT_CORN_CBT_20241025.json",
+      "role": "corpus",
+      "license": "Public domain (US government works: U.S. Commodity Futures Trading Commission, Commitments of Traders reports)",
+      "sha256": "3bb7cfdf3f2ba2b233a2df3b7872a987ec2a58177c17ecb5a44827c6b9546050",
+      "bytes": 3502,
+      "split": "public-dev",
+      "redistributable": true,
+      "cutoff": "2024-10-31",
+      "pii_stripped": true,
+      "source": "CFTC"
+    },
+    {
+      "path": "corpus/COT_ES_SP500_20241025.json",
+      "role": "corpus",
+      "license": "Public domain (US government works: U.S. Commodity Futures Trading Commission, Commitments of Traders reports)",
+      "sha256": "3bae9bd72b07cd06e2b142a225b944a1e4d79c8a6f87f162e70292641b4f0a86",
+      "bytes": 3519,
+      "split": "public-dev",
+      "redistributable": true,
+      "cutoff": "2024-10-31",
+      "pii_stripped": true,
+      "source": "CFTC"
+    },
+    {
+      "path": "corpus/COT_EURO_FX_20241025.json",
+      "role": "corpus",
+      "license": "Public domain (US government works: U.S. Commodity Futures Trading Commission, Commitments of Traders reports)",
+      "sha256": "c03df643931e491a6e5b5cdcc10eb7226e383cfc2feeb506fe87e2a2d38a6154",
+      "bytes": 3446,
+      "split": "public-dev",
+      "redistributable": true,
+      "cutoff": "2024-10-31",
+      "pii_stripped": true,
+      "source": "CFTC"
+    },
+    {
+      "path": "corpus/COT_GOLD_CMX_20241025.json",
+      "role": "corpus",
+      "license": "Public domain (US government works: U.S. Commodity Futures Trading Commission, Commitments of Traders reports)",
+      "sha256": "099b809df424e2e31096612ccc344042ca7584f03bcec3054342c0271f4976ad",
+      "bytes": 3404,
+      "split": "public-dev",
+      "redistributable": true,
+      "cutoff": "2024-10-31",
+      "pii_stripped": true,
+      "source": "CFTC"
+    },
+    {
+      "path": "corpus/COT_JPY_CME_20241025.json",
+      "role": "corpus",
+      "license": "Public domain (US government works: U.S. Commodity Futures Trading Commission, Commitments of Traders reports)",
+      "sha256": "2ae8f31bbde15234be268c7b95be7e15cd6c27872e45519ae552445ee914fa1a",
+      "bytes": 3448,
+      "split": "public-dev",
+      "redistributable": true,
+      "cutoff": "2024-10-31",
+      "pii_stripped": true,
+      "source": "CFTC"
+    },
+    {
+      "path": "corpus/COT_METHODOLOGY_20241025.json",
+      "role": "corpus",
+      "license": "Public domain (US government works: U.S. Commodity Futures Trading Commission, Commitments of Traders reports)",
+      "sha256": "f33c80aa70a561b1c6a992c39fc2c31cc8126ea80f0561b17a85c716c61e3cae",
+      "bytes": 2349,
+      "split": "public-dev",
+      "redistributable": true,
+      "cutoff": "2024-10-31",
+      "pii_stripped": true,
+      "source": "CFTC"
+    },
+    {
+      "path": "corpus/COT_NATGAS_NYMEX_20241025.json",
+      "role": "corpus",
+      "license": "Public domain (US government works: U.S. Commodity Futures Trading Commission, Commitments of Traders reports)",
+      "sha256": "71f00a62b7d5552e9f06b3038c2e657e0c4df3587b04a13f7a23c8e8772771ef",
+      "bytes": 3506,
+      "split": "public-dev",
+      "redistributable": true,
+      "cutoff": "2024-10-31",
+      "pii_stripped": true,
+      "source": "CFTC"
+    },
+    {
+      "path": "corpus/COT_SILVER_CMX_20241025.json",
+      "role": "corpus",
+      "license": "Public domain (US government works: U.S. Commodity Futures Trading Commission, Commitments of Traders reports)",
+      "sha256": "3c31ac83e2fe4eb377705ed32551c5e9fc55c74010efd7ccb2ce870b167c651e",
+      "bytes": 3331,
+      "split": "public-dev",
+      "redistributable": true,
+      "cutoff": "2024-10-31",
+      "pii_stripped": true,
+      "source": "CFTC"
+    },
+    {
+      "path": "corpus/COT_UST_10Y_20241025.json",
+      "role": "corpus",
+      "license": "Public domain (US government works: U.S. Commodity Futures Trading Commission, Commitments of Traders reports)",
+      "sha256": "2168bbcf1a353258082d434b5f0b0cf46504b583154e0cc0925ec0dcc45f2853",
+      "bytes": 3607,
+      "split": "public-dev",
+      "redistributable": true,
+      "cutoff": "2024-10-31",
+      "pii_stripped": true,
+      "source": "CFTC"
+    },
+    {
+      "path": "corpus/COT_UST_2Y_20241025.json",
+      "role": "corpus",
+      "license": "Public domain (US government works: U.S. Commodity Futures Trading Commission, Commitments of Traders reports)",
+      "sha256": "9582a2e5c7fd295f613e2d41ddd4a9f44f79e131084569112f712512b11e6eae",
+      "bytes": 3662,
+      "split": "public-dev",
+      "redistributable": true,
+      "cutoff": "2024-10-31",
+      "pii_stripped": true,
+      "source": "CFTC"
+    },
+    {
+      "path": "corpus/COT_WTI_NYMEX_20241025.json",
+      "role": "corpus",
+      "license": "Public domain (US government works: U.S. Commodity Futures Trading Commission, Commitments of Traders reports)",
+      "sha256": "0b771580d1ce727fc2cca2e2e0ff4da4c54827e8f45135412cfd15f93b21068c",
+      "bytes": 3565,
+      "split": "public-dev",
+      "redistributable": true,
+      "cutoff": "2024-10-31",
+      "pii_stripped": true,
+      "source": "CFTC"
+    },
+    {
+      "path": "corpus/MKT_SNAPSHOT_20241031.json",
+      "role": "corpus",
+      "license": "Public domain (US government works: U.S. Commodity Futures Trading Commission, Commitments of Traders reports)",
+      "sha256": "45e35f05702ebff66674223647b232332f1f1c876be100be94b98119d88f8e4d",
+      "bytes": 2066,
+      "split": "public-dev",
+      "redistributable": true,
+      "cutoff": "2024-10-31",
+      "pii_stripped": true,
+      "source": "FRED"
+    },
+    {
+      "path": "corpus/manifest.json",
+      "role": "input",
+      "license": "Public domain (US government works: U.S. Commodity Futures Trading Commission, Commitments of Traders reports)",
+      "sha256": "1cf78edbd078fca2de2887a4cddd132e49e5be5e7a228386f7c39c3078aa5499",
+      "bytes": 5725,
+      "split": "public-dev",
+      "redistributable": true
+    }
+  ]
+}
