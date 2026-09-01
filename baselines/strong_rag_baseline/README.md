@@ -4,29 +4,45 @@
 
 The track's reference retrieval-augmented agent (Baseline 3 in `../README.md`): for each entity
 it retrieves the top-K span-level chunks from the frozen corpus with BM25 (embargo enforced at
-retrieval time), sends them with the entity's tabular features to the house model at
-`$MODEL_ENDPOINT`, and turns the model's quoted evidence into claims with **exact
-`(doc_id, span_start, span_end)` citations** — model-supplied offsets are never trusted; quotes
-are located as verbatim substrings of the corpus, and anything ungroundable is dropped rather
-than cited loosely. One agent for all units, no per-unit tuning; deterministic given the model
-pin and seed (temperature 0, fixed seed, stable tie-breaks).
+retrieval time). When `$MODEL_ENDPOINT` is unset — the local `--network=none` smoke, and
+`--mock` — it does **not** emit empty evidence. It runs an extract-then-predict reasoner that
+reads `target.type` and the legal label list from the task (both published `task.json` shapes),
+pulls numbers and polarity cues from an embargo-safe window, and cites that exact window so the
+NLI hypothesis (built from the submitted label / `point_forecast` / interval, never from claim
+prose) has a chance of being entailed. When the harness injects `$MODEL_ENDPOINT`, the house
+model still runs; a reply that yields zero grounded claims is filled by the same reasoner.
+One agent for all units, no `family` dispatch; deterministic given the corpus and seed.
 
-**Status: scaffold.** Fully runnable end-to-end with `--mock` or any local OpenAI-compatible
-server; quality acceptance (beats `baseline_agent/`, ≥0.80 faithfulness under the pinned judge)
-waits on the staging `$MODEL_ENDPOINT`.
+**Status: extract-then-predict is the offline path.** Schema-valid, embargo-safe answers on
+every public-dev unit without a model. Predictive quality can still improve when a house model
+is present; the faithfulness-first milestone is the reasoner.
 
 ## Run
 
 ```bash
-# standard interface contract
+# standard interface contract (extract-then-predict when MODEL_ENDPOINT is unset)
 python -m baselines.strong_rag_baseline.cli \
   --task   units/t4-EXAMPLE-eps-beat/task.json \
   --corpus units/t4-EXAMPLE-eps-beat/corpus \
   --out    /tmp/answer.json
 
-# wiring smoke run without any model server
-python -m baselines.strong_rag_baseline.cli --task ... --corpus ... --out ... --mock
+# same reasoner, explicit (no house model)
+python -m baselines.strong_rag_baseline.cli \
+  --task   units/t4-EXAMPLE-eps-beat/task.json \
+  --corpus units/t4-EXAMPLE-eps-beat/corpus \
+  --out    /tmp/answer.json \
+  --mock
+
+# harness shape — the verb is optional when you invoke the module by hand
+python -m baselines.strong_rag_baseline.cli analyze \
+  --task   units/t4-EXAMPLE-eps-beat/task.json \
+  --corpus units/t4-EXAMPLE-eps-beat/corpus \
+  --out    /tmp/answer.json
 ```
+
+The container command the official harness issues is still `analyze --task --corpus --out`.
+Point the image entrypoint at this module (or install a console script that delegates to
+`baselines.strong_rag_baseline.cli:main`) so the verb arrives as the first argument.
 
 Environment:
 
@@ -51,8 +67,10 @@ Local model example: `ollama serve` + `MODEL_ENDPOINT=http://localhost:11434/v1 
 | `client.py` | stdlib HTTP client for `/chat/completions` (temp 0, seed, retries) + `MockModelClient` for tests |
 | `prompts.py` | Per-target-type prompt; demands one JSON object with verbatim quotes |
 | `span_finder.py` | Locates quotes as exact substrings (length-preserving curly-quote normalization); never trusts model offsets |
-| `agent.py` | Orchestration; ungroundable quotes fall back to the source chunk's known-good offsets or are dropped; off-vocabulary labels and missing intervals get deterministic fallbacks |
-| `formatter.py` | Final answer assembly + hard self-check (spans resolve, intervals complete, `notes` is an object) |
+| `schema.py` | Reads `target.type` / top-level `target_type`, the legal label list, and `interval_level` from the task — both published shapes |
+| `reasoner.py` | Extract-then-predict: embargo-safe entity windows → numbers / polarity → prediction whose tokens are in the cited span |
+| `agent.py` | Orchestration; ungroundable quotes fall back to the source chunk's known-good offsets or are dropped; empty model evidence is replaced by the reasoner; off-vocabulary labels and missing intervals get deterministic fallbacks |
+| `formatter.py` | Final answer assembly (`target_type` from the task) + hard self-check (spans resolve, intervals complete, `notes` is an object) |
 
 **BM25 only, no dense retrieval** (deviation from the Baseline-3 sketch in `../README.md`): the
 eval sandbox's restricted network cannot fetch embedding weights at run time, so a lexical index
@@ -62,11 +80,19 @@ index is permitted if its weights are bundled in the image (`byo-small`/`byo-lar
 targets the corpus's natural citable units (rendered-table NOTES lines, per-span passages),
 which recovers much of what dense retrieval would add on these corpora.
 
-## Acceptance (tracked, not yet runnable)
+## Acceptance
 
-- [ ] Schema PASS + embargo PASS on the public practice unit(s)
-- [ ] ≥0.80 citation faithfulness under the pinned judge
+- [x] Schema-valid `answer.json` on every unit under `units/` (extract-then-predict, no model)
+- [x] Embargo: every cited `doc_date` is `<= cutoff_date`; undated / unknown ids are not cited
+- [x] Labels come from `target.labels`, not a hardcoded EPS vocabulary
+- [ ] ≥0.80 citation faithfulness under the pinned judge on all 11 public-dev units (run
+      `python faithfulness/judge.py --answer … --unit …`; the NLI hypothesis is the
+      submitted prediction, including the interval clause). The extract-then-predict
+      reasoner puts the predicted number / a legal label in the cited span so the
+      hypothesis has a lexical hook; the remaining risk is the interval clause
+      (`The 90% prediction interval … is lo to hi`), which the corpus rarely states
+      as a prediction interval. Next patch: a local NLI reranker over candidate
+      (span, lo, hi) triples, once `qfbench2-common` (Python ≥ 3.13) and the pinned
+      DeBERTa weights are on the machine.
 - [ ] Predictive quality strictly above `baseline_agent/`
 - [ ] Runs as-is on `sample-tasks/track4-analysis/` and passes `evaluation/check_submission.py`
-
-All four wait on the staging `$MODEL_ENDPOINT` and the sample-tasks export.

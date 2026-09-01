@@ -1,0 +1,114 @@
+"""Extract-then-predict reasoner: schema, embargo, no hardcoded EPS vocabulary."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from baselines.strong_rag_baseline.cli import run
+from baselines.strong_rag_baseline.reasoner import extract_numbers
+from baselines.strong_rag_baseline.schema import legal_labels, target_type
+
+REPO = Path(__file__).resolve().parents[3]
+UNITS = sorted(p for p in (REPO / "units").iterdir() if (p / "task.json").is_file())
+
+
+def _run_unit(unit: Path, tmp_path: Path) -> dict:
+    return run(
+        task_path=unit / "task.json",
+        corpus_dir=unit / "corpus",
+        out_path=tmp_path / f"{unit.name}.json",
+        client=None,
+        top_k=10,
+        grounded=True,
+    )
+
+
+@pytest.mark.parametrize("unit", UNITS, ids=[p.name for p in UNITS])
+def test_grounded_run_is_schema_valid_and_embargo_safe(unit: Path, tmp_path: Path) -> None:
+    task = json.loads((unit / "task.json").read_text(encoding="utf-8"))
+    answer = _run_unit(unit, tmp_path)
+    kind = target_type(task)
+    labels = legal_labels(task)
+    cutoff = task["cutoff_date"]
+    roster = [e["entity_id"] for e in task["entities"]]
+
+    assert answer["task_id"] == task["task_id"]
+    if kind is not None:
+        assert answer["target_type"] == kind
+    preds = answer["entity_predictions"]
+    assert [p["entity_id"] for p in preds] == roster
+
+    dates: dict[str, str] = {}
+    for path in (unit / "corpus").glob("*.json"):
+        if path.name == "manifest.json":
+            continue
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        dates[doc.get("doc_id", path.stem)] = doc["doc_date"]
+
+    for pred in preds:
+        interval = pred["interval"]
+        assert interval["level"] == pytest.approx(float(task.get("interval_level", 0.90)))
+        assert interval["lo"] <= interval["hi"]
+        assert pred["claims"], f"{pred['entity_id']} has no claims"
+        if kind == "classification":
+            assert pred["label"] in labels
+        assert pred["point_forecast"] is not None
+        if kind == "ranking":
+            assert isinstance(pred.get("rank"), int)
+        for claim in pred["claims"]:
+            doc_id = claim["doc_id"]
+            assert doc_id in dates, f"unresolved or undated citation {doc_id}"
+            assert dates[doc_id] <= cutoff, f"post-cutoff citation {doc_id}"
+            assert 0 <= claim["span_start"] < claim["span_end"]
+
+    if kind == "ranking":
+        ranks = sorted(p["rank"] for p in preds)
+        assert ranks == list(range(1, len(preds) + 1))
+
+
+def test_labels_come_from_the_task_not_eps_vocab(tmp_path: Path) -> None:
+    credit = REPO / "units" / "t4-credit-event-2023"
+    task = json.loads((credit / "task.json").read_text(encoding="utf-8"))
+    answer = _run_unit(credit, tmp_path)
+    allowed = set(legal_labels(task))
+    assert allowed == {"credit_event", "no_event"}
+    for pred in answer["entity_predictions"]:
+        assert pred["label"] in allowed
+        assert pred["label"] not in {"beat", "miss", "inline"}
+
+
+def test_cpi_notes_line_is_preferred_over_the_header(tmp_path: Path) -> None:
+    """Apparel's first print is +1.14, not a year or a header token."""
+    unit = REPO / "units" / "t4-cpicomp-202410-us11"
+    answer = _run_unit(unit, tmp_path)
+    by_id = {p["entity_id"]: p for p in answer["entity_predictions"]}
+    assert by_id["CPI_APPAREL"]["point_forecast"] == pytest.approx(1.14)
+    assert by_id["CPI_ENERGY"]["point_forecast"] == pytest.approx(-1.85)
+    assert by_id["CPI_ALLITEMS"]["point_forecast"] == pytest.approx(0.18)
+
+
+def test_regression_units_do_not_require_a_class_label(tmp_path: Path) -> None:
+    unit = REPO / "units" / "t4-cpicomp-202410-us11"
+    answer = _run_unit(unit, tmp_path)
+    assert answer["target_type"] == "regression"
+    for pred in answer["entity_predictions"]:
+        assert isinstance(pred["point_forecast"], (int, float))
+        assert pred["claims"]
+
+
+def test_extract_numbers_keeps_sign_and_decimals() -> None:
+    assert extract_numbers("first print +0.18%; range -0.06% to +0.44%") == [
+        0.18,
+        -0.06,
+        0.44,
+    ]
+    assert extract_numbers("bid-to-cover of 2.48") == [2.48]
+
+
+def test_grounded_run_is_deterministic(tmp_path: Path) -> None:
+    unit = REPO / "units" / "t4-EXAMPLE-eps-beat"
+    first = _run_unit(unit, tmp_path / "a")
+    second = _run_unit(unit, tmp_path / "b")
+    assert first == second

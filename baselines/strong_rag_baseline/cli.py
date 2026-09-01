@@ -12,9 +12,12 @@ optional when running the module by hand::
         --corpus units/t4-EXAMPLE-eps-beat/corpus \
         --out    /tmp/answer.json
 
-Requires an OpenAI-compatible model server at ``$MODEL_ENDPOINT`` (injected by
-the harness at scoring time; locally use ollama/llama.cpp or ``--mock`` for a
-network-free smoke run with a canned model reply).
+When ``$MODEL_ENDPOINT`` is unset (local ``--network=none`` smoke, or
+``--mock``), the agent runs an extract-then-predict reasoner: it reads the
+legal labels and ``target.type`` from the task, retrieves embargo-safe spans,
+and emits a prediction whose numbers / label are taken from a cited span. When
+the harness injects ``$MODEL_ENDPOINT`` the house-model path still runs, and
+any reply that yields zero grounded claims is filled by the same reasoner.
 """
 from __future__ import annotations
 
@@ -23,37 +26,36 @@ import json
 import sys
 from pathlib import Path
 
-from .agent import run_entity
-from .client import HTTPModelClient, MockModelClient, ModelClient
+from .agent import run_entity, run_entity_grounded
+from .client import HTTPModelClient, ModelClient
 from .config import Config
 from .formatter import build_answer
 from .indexer import build_index
 from .retriever import BM25Index
-
-_MOCK_REPLY = json.dumps(
-    {
-        "label": None,
-        "point_forecast": 0.0,
-        "interval": {"level": 0.90, "lo": -1.0, "hi": 1.0},
-        "evidence": [],
-    }
-)
 
 
 def run(
     task_path: Path,
     corpus_dir: Path,
     out_path: Path,
-    client: ModelClient,
+    client: ModelClient | None,
     top_k: int,
+    *,
+    grounded: bool = False,
 ) -> dict:
     task = json.loads(task_path.read_text(encoding="utf-8"))
     corpus = build_index(corpus_dir)
     index = BM25Index(corpus.chunks, task["cutoff_date"])
-    results = [
-        run_entity(task, entity, index, corpus, client, top_k)
-        for entity in task.get("entities", [])
-    ]
+    if grounded or client is None:
+        results = [
+            run_entity_grounded(task, entity, index, corpus, top_k)
+            for entity in task.get("entities", [])
+        ]
+    else:
+        results = [
+            run_entity(task, entity, index, corpus, client, top_k)
+            for entity in task.get("entities", [])
+        ]
     answer = build_answer(task, results, corpus)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
@@ -73,15 +75,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--mock",
         action="store_true",
-        help="Use a canned model reply (no network) — wiring smoke runs only.",
+        help=(
+            "Skip $MODEL_ENDPOINT and run the extract-then-predict reasoner "
+            "(network-free; this is the local-smoke path)."
+        ),
     )
     args = parser.parse_args(argv)
 
     config = Config.from_env()
-    client: ModelClient = (
-        MockModelClient(reply=_MOCK_REPLY) if args.mock else HTTPModelClient(config)
+    use_grounded = bool(args.mock) or not config.model_endpoint
+    client: ModelClient | None
+    if use_grounded:
+        client = None
+    else:
+        client = HTTPModelClient(config)
+    answer = run(
+        args.task,
+        args.corpus,
+        args.out,
+        client,
+        config.top_k,
+        grounded=use_grounded,
     )
-    answer = run(args.task, args.corpus, args.out, client, config.top_k)
     n_claims = sum(len(e["claims"]) for e in answer["entity_predictions"])
     print(
         f"wrote {args.out} — {len(answer['entity_predictions'])} entities, "

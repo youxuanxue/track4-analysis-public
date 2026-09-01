@@ -109,3 +109,6 @@ def test_mock_cli_flag_smoke(tmp_path):
     assert exit_code == 0
     answer = json.loads((tmp_path / "answer.json").read_text())
     assert answer["entity_predictions"]
+    assert answer["entity_predictions"][0]["claims"], (
+        "--mock must emit grounded claims via the extract-then-predict reasoner"
+    )

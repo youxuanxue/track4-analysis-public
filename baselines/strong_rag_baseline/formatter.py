@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from .agent import EntityResult
 from .indexer import IndexedCorpus
+from .schema import target_type
 
 
 def build_answer(
@@ -16,24 +17,48 @@ def build_answer(
 ) -> dict:
     total_dropped = sum(r.dropped_claims for r in results)
     total_claims = sum(len(r.prediction["claims"]) for r in results)
-    answer = {
+    kind = target_type(task)
+    predictions = [r.prediction for r in results]
+    if kind == "ranking":
+        _assign_ranks(predictions)
+    answer: dict = {
         "task_id": task.get("task_id", ""),
         "schema_version": task.get("schema_version", "3"),
-        "entity_predictions": [r.prediction for r in results],
-        "evidence_trace": (
-            f"strong_rag_baseline: BM25 span-chunk retrieval + $MODEL_ENDPOINT. "
-            f"{total_claims} grounded claims kept, {total_dropped} ungroundable "
-            f"evidence items dropped. All cited spans resolved in the frozen "
-            f"corpus; embargo enforced at retrieval time."
-        ),
-        "notes": {
-            "agent": "strong_rag_baseline",
-            "retrieval": "bm25-span-chunks",
-            "dropped_evidence_items": total_dropped,
-        },
+    }
+    if kind is not None:
+        answer["target_type"] = kind
+    answer["entity_predictions"] = predictions
+    answer["evidence_trace"] = (
+        f"strong_rag_baseline: BM25 span-chunk retrieval; extract-then-predict "
+        f"when $MODEL_ENDPOINT is unset. {total_claims} grounded claims kept, "
+        f"{total_dropped} ungroundable evidence items dropped. All cited spans "
+        f"resolved in the frozen corpus; embargo enforced at retrieval time."
+    )
+    answer["notes"] = {
+        "agent": "strong_rag_baseline",
+        "retrieval": "bm25-span-chunks",
+        "reasoner": "extract-then-predict",
+        "dropped_evidence_items": total_dropped,
     }
     _assert_valid(answer, corpus)
     return answer
+
+
+def _assign_ranks(predictions: list[dict]) -> None:
+    """Ranking is scored on ``point_forecast``. Optional ``rank`` must be 1..n."""
+    ordered = sorted(
+        range(len(predictions)),
+        key=lambda i: (
+            -(
+                float(predictions[i]["point_forecast"])
+                if isinstance(predictions[i].get("point_forecast"), (int, float))
+                else float("-inf")
+            ),
+            str(predictions[i].get("entity_id", "")),
+        ),
+    )
+    for rank, index in enumerate(ordered, start=1):
+        predictions[index]["rank"] = rank
 
 
 def _assert_valid(answer: dict, corpus: IndexedCorpus) -> None:
