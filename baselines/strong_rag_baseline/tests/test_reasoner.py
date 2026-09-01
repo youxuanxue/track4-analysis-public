@@ -195,11 +195,12 @@ def test_credit_bbby_cites_going_concern(tmp_path: Path) -> None:
     answer = _run_unit(unit, tmp_path)
     bbby = next(p for p in answer["entity_predictions"] if p["entity_id"] == "BBBY")
     assert bbby["label"] == "credit_event"
-    assert {bbby["interval"]["lo"], bbby["interval"]["hi"]} == {307.6, 890.0}
+    assert {bbby["interval"]["lo"], bbby["interval"]["hi"]} == {375.0, 550.0}
     corpus = build_index(unit / "corpus")
     claim = bbby["claims"][0]
     span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
-    assert re.search(r"going concern", span, flags=re.I)
+    assert re.search(r"events of default", span, flags=re.I)
+    assert "550.0" in span and "375.0" in span
 
 
 def test_fomc_20240918_uses_the_snapshot_close(tmp_path: Path) -> None:
@@ -373,28 +374,38 @@ def test_credit_rad_yell_we_cite_distress(tmp_path: Path) -> None:
     by_id = {p["entity_id"]: p for p in answer["entity_predictions"]}
     corpus = build_index(unit / "corpus")
     assert by_id["BBBY"]["label"] == "credit_event"
-    assert {by_id["BBBY"]["interval"]["lo"], by_id["BBBY"]["interval"]["hi"]} == {307.6, 890.0}
+    assert {by_id["BBBY"]["interval"]["lo"], by_id["BBBY"]["interval"]["hi"]} == {375.0, 550.0}
     assert by_id["ODFL"]["label"] == "no_event"
     macy = by_id["M"]
     assert macy["label"] == "no_event"
     mspan = corpus.doc_texts[macy["claims"][0]["doc_id"]][
         macy["claims"][0]["span_start"] : macy["claims"][0]["span_end"]
     ]
-    assert re.search(r"profitable sales growth", mspan, flags=re.I)
+    assert re.search(r"no borrowings under the agreement", mspan, flags=re.I)
+    assert re.search(r"letters of credit outstanding", mspan, flags=re.I)
+    assert "65" in mspan and "116" in mspan
+    assert {macy["interval"]["lo"], macy["interval"]["hi"]} == {65.0, 116.0}
     odfl_span = corpus.doc_texts[by_id["ODFL"]["claims"][0]["doc_id"]][
         by_id["ODFL"]["claims"][0]["span_start"] : by_id["ODFL"]["claims"][0]["span_end"]
     ]
     assert re.search(r"in compliance with all covenants", odfl_span, flags=re.I)
+    assert re.search(r"no defaults or events of default", odfl_span, flags=re.I)
+    assert "211" in odfl_span and "250" in odfl_span
+    assert {by_id["ODFL"]["interval"]["lo"], by_id["ODFL"]["interval"]["hi"]} == {211.0, 250.0}
     bby_span = corpus.doc_texts[by_id["BBY"]["claims"][0]["doc_id"]][
         by_id["BBY"]["claims"][0]["span_start"] : by_id["BBY"]["claims"][0]["span_end"]
     ]
     assert by_id["BBY"]["label"] == "no_event"
-    assert re.search(r"in compliance with all financial covenants", bby_span, flags=re.I)
+    assert re.search(r"no borrowings outstanding", bby_span, flags=re.I)
+    assert "1.25" in bby_span and "0.5" in bby_span
+    assert {by_id["BBY"]["interval"]["lo"], by_id["BBY"]["interval"]["hi"]} == {0.5, 1.25}
     wba_span = corpus.doc_texts[by_id["WBA"]["claims"][0]["doc_id"]][
         by_id["WBA"]["claims"][0]["span_start"] : by_id["WBA"]["claims"][0]["span_end"]
     ]
     assert by_id["WBA"]["label"] == "no_event"
     assert re.search(r"in compliance with all such applicable covenants", wba_span, flags=re.I)
+    assert "5.04" in wba_span and "0.33" in wba_span
+    assert {by_id["WBA"]["interval"]["lo"], by_id["WBA"]["interval"]["hi"]} == {0.33, 5.04}
     rad = by_id["RAD"]
     assert rad["label"] == "credit_event"
     span = corpus.doc_texts[rad["claims"][0]["doc_id"]][
@@ -409,12 +420,14 @@ def test_credit_rad_yell_we_cite_distress(tmp_path: Path) -> None:
         yell["claims"][0]["span_start"] : yell["claims"][0]["span_end"]
     ]
     assert re.search(r"accumulated deficit|default under", span, flags=re.I)
+    assert {yell["interval"]["lo"], yell["interval"]["hi"]} == {184.6, 229.5}
     we = by_id["WE"]
     assert we["label"] == "credit_event"
     span = corpus.doc_texts[we["claims"][0]["doc_id"]][
         we["claims"][0]["span_start"] : we["claims"][0]["span_end"]
     ]
     assert re.search(r"going concern|net losses of|accumulated deficit", span, flags=re.I)
+    assert {we["interval"]["lo"], we["interval"]["hi"]} == {2.3, 4.6}
 
 
 def test_banks_cite_diluted_eps_not_hedge_text(tmp_path: Path) -> None:
