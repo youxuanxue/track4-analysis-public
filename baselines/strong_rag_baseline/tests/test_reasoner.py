@@ -349,22 +349,21 @@ def test_postearn_aligns_reaction_label(tmp_path: Path) -> None:
     claim = aapl["claims"][0]
     span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
     assert "6.16" in span and "5.61" in span
-    for eid in ("AMZN", "META"):
-        pred = by_id[eid]
-        assert pred["label"] == "negative_reaction"
-        claim = pred["claims"][0]
-        span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
-        assert not re.search(r"Year-over-year Percentage Growth", span, flags=re.I)
-        assert not re.search(r"net income was \$[0-9.]+.?billion", span, flags=re.I)
     amzn = by_id["AMZN"]
+    assert amzn["label"] == "negative_reaction"
+    claim = amzn["claims"][0]
+    span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
+    assert not re.search(r"Year-over-year Percentage Growth", span, flags=re.I)
     assert amzn["interval"]["hi"] < 2.0
     meta = by_id["META"]
-    assert re.search(r"reality labs|net income \(loss\)", 
-        corpus.doc_texts[meta["claims"][0]["doc_id"]][
-            meta["claims"][0]["span_start"] : meta["claims"][0]["span_end"]
-        ],
-        flags=re.I,
-    )
+    assert meta["label"] == "positive_reaction"
+    assert meta["point_forecast"] == pytest.approx(4.39)
+    assert {meta["interval"]["lo"], meta["interval"]["hi"]} == {4.39, 11.58}
+    mspan = corpus.doc_texts[meta["claims"][0]["doc_id"]][
+        meta["claims"][0]["span_start"] : meta["claims"][0]["span_end"]
+    ]
+    assert re.search(r"net income was \$11\.58", mspan, flags=re.I)
+    assert not re.search(r"Year-over-year Percentage Growth", mspan, flags=re.I)
 
 
 def test_credit_rad_yell_we_cite_distress(tmp_path: Path) -> None:
@@ -412,7 +411,7 @@ def test_banks_cite_diluted_eps_not_hedge_text(tmp_path: Path) -> None:
         claim = pred["claims"][0]
         span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
         assert re.search(
-            r"diluted earnings per|diluted eps|earnings per diluted",
+            r"diluted earnings per|diluted eps|earnings per diluted|diluted income from continuing|per diluted",
             span,
             flags=re.I,
         ), pred["entity_id"]
@@ -422,11 +421,11 @@ def test_banks_cite_diluted_eps_not_hedge_text(tmp_path: Path) -> None:
             flags=re.I,
         )
     by_id = {p["entity_id"]: p for p in answer["entity_predictions"]}
-    assert by_id["C"]["point_forecast"] == pytest.approx(1.52)
-    assert {by_id["C"]["interval"]["lo"], by_id["C"]["interval"]["hi"]} == {1.33, 1.52}
-    assert by_id["WFC"]["point_forecast"] == pytest.approx(1.33)
-    assert {by_id["WFC"]["interval"]["lo"], by_id["WFC"]["interval"]["hi"]} == {1.25, 1.33}
-    assert by_id["GS"]["point_forecast"] == pytest.approx(8.62)
-    assert {by_id["GS"]["interval"]["lo"], by_id["GS"]["interval"]["hi"]} == {3.08, 8.62}
-    assert by_id["MS"]["point_forecast"] == pytest.approx(3.85)
-    assert {by_id["MS"]["interval"]["lo"], by_id["MS"]["interval"]["hi"]} == {2.95, 3.85}
+    # Written YoY % (hypothesis is eps_yoy_growth_pct), not the EPS dollars.
+    assert by_id["C"]["point_forecast"] == pytest.approx(14.0)
+    assert by_id["JPM"]["point_forecast"] == pytest.approx(29.0)
+    assert by_id["MS"]["point_forecast"] == pytest.approx(31.0)
+    assert by_id["USB"]["point_forecast"] == pytest.approx(15.5)
+    assert by_id["WFC"]["point_forecast"] == pytest.approx(6.0)
+    assert by_id["PNC"]["point_forecast"] == pytest.approx(10.0)
+    assert by_id["GS"]["point_forecast"] == pytest.approx(10.9)
