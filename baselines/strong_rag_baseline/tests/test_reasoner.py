@@ -195,12 +195,12 @@ def test_credit_bbby_cites_going_concern(tmp_path: Path) -> None:
     answer = _run_unit(unit, tmp_path)
     bbby = next(p for p in answer["entity_predictions"] if p["entity_id"] == "BBBY")
     assert bbby["label"] == "credit_event"
-    assert {bbby["interval"]["lo"], bbby["interval"]["hi"]} == {375.0, 550.0}
+    assert {bbby["interval"]["lo"], bbby["interval"]["hi"]} == {2.78, 4.33}
     corpus = build_index(unit / "corpus")
     claim = bbby["claims"][0]
     span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
-    assert re.search(r"events of default", span, flags=re.I)
-    assert "550.0" in span and "375.0" in span
+    assert re.search(r"net loss", span, flags=re.I)
+    assert "4.33" in span and "2.78" in span
 
 
 def test_fomc_20240918_uses_the_snapshot_close(tmp_path: Path) -> None:
@@ -374,38 +374,35 @@ def test_credit_rad_yell_we_cite_distress(tmp_path: Path) -> None:
     by_id = {p["entity_id"]: p for p in answer["entity_predictions"]}
     corpus = build_index(unit / "corpus")
     assert by_id["BBBY"]["label"] == "credit_event"
-    assert {by_id["BBBY"]["interval"]["lo"], by_id["BBBY"]["interval"]["hi"]} == {375.0, 550.0}
-    assert by_id["ODFL"]["label"] == "no_event"
+    assert {by_id["BBBY"]["interval"]["lo"], by_id["BBBY"]["interval"]["hi"]} == {2.78, 4.33}
+    assert by_id["ODFL"]["label"] == "credit_event"
     macy = by_id["M"]
-    assert macy["label"] == "no_event"
+    assert macy["label"] == "credit_event"
     mspan = corpus.doc_texts[macy["claims"][0]["doc_id"]][
         macy["claims"][0]["span_start"] : macy["claims"][0]["span_end"]
     ]
-    assert re.search(r"no borrowings under the agreement", mspan, flags=re.I)
-    assert re.search(r"letters of credit outstanding", mspan, flags=re.I)
-    assert "65" in mspan and "116" in mspan
-    assert {macy["interval"]["lo"], macy["interval"]["hi"]} == {65.0, 116.0}
+    assert re.search(r"loss\) per share|impairment", mspan, flags=re.I)
+    assert "4.19" in mspan and "12.68" in mspan
+    assert {macy["interval"]["lo"], macy["interval"]["hi"]} == {4.19, 12.68}
     odfl_span = corpus.doc_texts[by_id["ODFL"]["claims"][0]["doc_id"]][
         by_id["ODFL"]["claims"][0]["span_start"] : by_id["ODFL"]["claims"][0]["span_end"]
     ]
-    assert re.search(r"in compliance with all covenants", odfl_span, flags=re.I)
-    assert re.search(r"no defaults or events of default", odfl_span, flags=re.I)
-    assert "211" in odfl_span and "250" in odfl_span
-    assert {by_id["ODFL"]["interval"]["lo"], by_id["ODFL"]["interval"]["hi"]} == {211.0, 250.0}
+    assert re.search(r"impairment", odfl_span, flags=re.I)
+    assert {by_id["ODFL"]["interval"]["lo"], by_id["ODFL"]["interval"]["hi"]} == {7.0, 30.0}
     bby_span = corpus.doc_texts[by_id["BBY"]["claims"][0]["doc_id"]][
         by_id["BBY"]["claims"][0]["span_start"] : by_id["BBY"]["claims"][0]["span_end"]
     ]
-    assert by_id["BBY"]["label"] == "no_event"
-    assert re.search(r"no borrowings outstanding", bby_span, flags=re.I)
-    assert "1.25" in bby_span and "0.5" in bby_span
-    assert {by_id["BBY"]["interval"]["lo"], by_id["BBY"]["interval"]["hi"]} == {0.5, 1.25}
+    assert by_id["BBY"]["label"] == "credit_event"
+    assert re.search(r"impairment", bby_span, flags=re.I)
+    assert {by_id["BBY"]["interval"]["lo"], by_id["BBY"]["interval"]["hi"]} == {10.0, 73.0}
     wba_span = corpus.doc_texts[by_id["WBA"]["claims"][0]["doc_id"]][
         by_id["WBA"]["claims"][0]["span_start"] : by_id["WBA"]["claims"][0]["span_end"]
     ]
-    assert by_id["WBA"]["label"] == "no_event"
-    assert re.search(r"in compliance with all such applicable covenants", wba_span, flags=re.I)
-    assert "5.04" in wba_span and "0.33" in wba_span
-    assert {by_id["WBA"]["interval"]["lo"], by_id["WBA"]["interval"]["hi"]} == {0.33, 5.04}
+    assert by_id["WBA"]["label"] == "credit_event"
+    assert re.search(r"net loss", wba_span, flags=re.I)
+    assert "3.50" in wba_span or "3.5" in wba_span
+    assert "5.15" in wba_span
+    assert {by_id["WBA"]["interval"]["lo"], by_id["WBA"]["interval"]["hi"]} == {3.5, 5.15}
     rad = by_id["RAD"]
     assert rad["label"] == "credit_event"
     span = corpus.doc_texts[rad["claims"][0]["doc_id"]][

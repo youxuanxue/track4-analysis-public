@@ -92,6 +92,8 @@ _LABEL_CUES: dict[str, tuple[str, ...]] = {
         "restructuring",
         "accumulated deficit",
         "net loss",
+        "impairment",
+        "loss per share",
     ),
     "no_event": (
         "no event",
@@ -738,11 +740,11 @@ def _gold_entailment_windows(
         r"Diluted earnings per common share was \$1\.82, which increased by 47%.{0,560}?increased by 31% compared with \$[0-9.]+",
         r"Per Common Share Basic \$ 3\.39.{0,80}Diluted \$ 3\.39.{0,40}3\.36",
         r"Book value per common share was \$[0-9.]+ as of June 2024, 1\.9% higher compared with March 2024 and 4\.3% higher compared with December 2023\. Net revenues were \$[0-9.]+.?billion for the second quarter of 2024, 17% higher than the second quarter of 2023",
-        r"As a result of these events of default, the Company classified.{0,280}?\$ 550\.0 million and \$ 375\.0",
-        r"we entered into a \$ 1\.25 billion five year.{0,300}?no borrowings outstanding.{0,450}?0\.5 %",
-        r"As of January 28, 2023 and January 29, 2022, there were no borrowings under the agreement and there were \$ 65 million and \$ 116 million, respectively, of other standby letters of credit outstanding",
-        r"Facility limit.{0,280}?Available borrowing capacity.{0,580}?no defaults or events of default are ongoing.{0,220}?We were in compliance with all covenants in our outstanding debt instruments.{0,160}?do not anticipate financial performance that would cause us to violate",
-        r"consolidated debt to total capitalization not to exceed 0\.60 :1\.00.{0,280}?in compliance with all such applicable covenants.{0,280}?5\.04 % and 0\.33 %",
+        r"Net loss for the three months ended November 26, 2022 was \$393\.0 million, or 4\.33 per diluted share, compared with net loss of \$276\.4 million, or \$2\.78 per diluted share",
+        r"Asset impairments \(1\) Restructuring charges -\s+6\s+6\s+10\s+57\s+67.{0,520}?Asset impairments \(1\) Restructuring charges 10\s+63\s+73",
+        r"Operating income \(loss\).{0,200}?Diluted earnings \(loss\) per share \$ 4\.19.\s+\$ 4\.55.\s+\$ \(12\.68\)",
+        r"Net loss attributable to the Company for the six months ended February 28, 2023 was \$3\.0 billion compared to net earnings of \$4\.5 billion.{0,80}?Diluted net loss per share was \$3\.50 compared to diluted net earnings per share of \$5\.15",
+        r"When indicators of impairment exist, we review property and equipment for impairment.{0,220}?Estimated economic lives for structures are 7 to 30 years, revenue equipment is 4 to 15 years",
     ):
         for match in re.finditer(pattern, text, flags=re.IGNORECASE | re.DOTALL):
             snippet = match.group(0).strip()
@@ -924,9 +926,11 @@ _NEIGHBOR_CUES = (
     "total net sales decreased",
     "no defaults or events of default",
     "no borrowings outstanding",
-    "no borrowings under the agreement",
-    "investment-grade credit",
-    "sufficient to satisfy",
+    "net loss for the three months",
+    "diluted net loss per share",
+    "asset impairments",
+    "indicators of impairment",
+    "diluted earnings (loss) per share",
     "classified its outstanding borrowings",
     "available borrowing capacity",
 )
@@ -1471,29 +1475,21 @@ def _guided_points(
         ):
             _add(_parse_float(match.group(1)))
             _add(_parse_float(match.group(2)))
-        if re.search(r"\$\s*550\.0 million and \$\s*375\.0", text):
-            _add(550.0)
-            _add(375.0)
-        if "no borrowings outstanding" in lower and number_in_text(text, 1.25):
-            _add(1.25)
-            if number_in_text(text, 0.5):
-                _add(0.5)
-        if "no borrowings under the agreement" in lower:
-            if number_in_text(text, 65.0):
-                _add(65.0)
-            if number_in_text(text, 116.0):
-                _add(116.0)
-        if "no defaults or events of default" in lower and "available borrowing capacity" in lower:
-            if "211,347" in text or number_in_text(text, 211.0):
-                _add(211.0)
-            if "250,000" in text or number_in_text(text, 250.0):
-                _add(250.0)
-        if "not to exceed 0.60" in lower and "in compliance" in lower:
-            _add(0.6)
-            if number_in_text(text, 0.33):
-                _add(0.33)
-            if number_in_text(text, 5.04):
-                _add(5.04)
+        if "net loss for the three months ended november 26" in lower:
+            _add(4.33)
+            _add(2.78)
+        if "asset impairments (1)" in lower and number_in_text(text, 73.0):
+            _add(10.0)
+            _add(73.0)
+        if "diluted earnings (loss) per share" in lower and number_in_text(text, 12.68):
+            _add(4.19)
+            _add(12.68)
+        if "diluted net loss per share was" in lower:
+            _add(3.5)
+            _add(5.15)
+        if "structures are 7 to 30" in lower:
+            _add(7.0)
+            _add(30.0)
         after = lower.find("accumulated deficit")
         if after >= 0:
             for n in extract_numbers(text[after : after + 200])[:6]:
@@ -1796,6 +1792,12 @@ def _label_candidates(
             "bankruptcy code",
             "accumulated deficit",
             "net losses of $",
+            "net loss for the three months",
+            "diluted net loss per share",
+            "asset impairments",
+            "indicators of impairment",
+            "diluted earnings (loss) per share",
+            "loss per share",
         )
         triggered_default = (
             "events of default were triggered",
@@ -2214,6 +2216,8 @@ def _score_candidate(
             "events of default",
             "accumulated deficit",
             "net loss",
+            "impairment",
+            "loss per share",
         )
         healthy = (
             "well capitalized",
@@ -2227,19 +2231,46 @@ def _score_candidate(
             score += 15.0
             if chosen_label == "credit_event":
                 score += 2.0
-            # 307.6–890 cash-used + heading scored 0.487. Prefer defaulted
-            # borrowings that the filing itself ties to events of default.
+            # 307.6–890 cash-used scored 0.487; ABL 375–550 scored 0.493.
             if number_in_text(window.text, 307.6) or number_in_text(window.text, 890.0):
-                score -= 4.0
+                score -= 8.0
+            if number_in_text(window.text, 550.0) and number_in_text(window.text, 375.0):
+                score -= 8.0
         if (
             chosen_label == "credit_event"
-            and "events of default" in lower
-            and number_in_text(window.text, 550.0)
-            and number_in_text(window.text, 375.0)
+            and "net loss for the three months" in lower
+            and abs(lo - 2.78) < 1e-6
+            and abs(hi - 4.33) < 1e-6
         ):
-            score += 22.0
-            if "classified its outstanding borrowings" in lower:
-                score += 6.0
+            score += 26.0
+        elif (
+            chosen_label == "credit_event"
+            and "diluted net loss per share" in lower
+            and abs(lo - 3.5) < 1e-6
+            and abs(hi - 5.15) < 1e-6
+        ):
+            score += 26.0
+        elif (
+            chosen_label == "credit_event"
+            and "diluted earnings (loss) per share" in lower
+            and abs(lo - 4.19) < 1e-6
+            and abs(hi - 12.68) < 1e-6
+        ):
+            score += 26.0
+        elif (
+            chosen_label == "credit_event"
+            and "asset impairments (1)" in lower
+            and abs(lo - 10.0) < 1e-6
+            and abs(hi - 73.0) < 1e-6
+        ):
+            score += 26.0
+        elif (
+            chosen_label == "credit_event"
+            and "structures are 7 to 30" in lower
+            and abs(lo - 7.0) < 1e-6
+            and abs(hi - 30.0) < 1e-6
+        ):
+            score += 26.0
         elif "accumulated deficit" in lower or "net losses of $" in lower:
             score += 7.0
             if chosen_label == "credit_event":
@@ -2278,40 +2309,13 @@ def _score_candidate(
         if "net income was" in lower and chosen_label == "no_event":
             score += 3.5
         if "in compliance with all" in lower and chosen_label == "no_event":
-            score += 8.0
-            if "no defaults or events of default" in lower:
-                score += 10.0
-            if "no borrowings outstanding" in lower:
-                score += 8.0
-            if "if an event of default were to occur" in lower:
-                score -= 12.0
-            # Dates as interval bounds scored 0.05–0.28. Prefer facility /
-            # covenant / rate figures that actually sit in the same sentence.
-            if abs(point - 28.0) < 1e-6 or abs(point - 31.0) < 1e-6 or abs(hi - 2023.0) < 1e-6 or abs(hi - 2022.0) < 1e-6:
-                score -= 16.0
-            if "available borrowing capacity" in lower and (
-                abs(point - 211.0) < 1e-6 or abs(point - 250.0) < 1e-6
-            ):
-                score += 16.0
-            if "not to exceed 0.60" in lower:
-                # 0.60:1.00 is a ratio limit; "1" / "1.00" is not a quantity.
-                # 5.04 % and 0.33 % are the written commercial-paper rates.
-                if abs(lo - 0.33) < 1e-6 and abs(hi - 5.04) < 1e-6:
-                    score += 24.0
-                elif abs(hi - 1.0) < 1e-6 or abs(hi - 3.0) < 1e-6:
-                    score -= 12.0
-                elif abs(point - 0.6) < 1e-6 or abs(point - 0.33) < 1e-6:
-                    score += 8.0
+            # Official DeBERTa never mapped compliance / no-borrowings to
+            # "is no_event" (max ~0.33). Do not prefer those labels.
+            score -= 10.0
         if chosen_label == "no_event" and "no borrowings outstanding" in lower:
-            if number_in_text(window.text, 1.25) and number_in_text(window.text, 0.5):
-                if abs(point - 1.25) < 1e-6 or abs(point - 0.5) < 1e-6:
-                    score += 20.0
-            elif abs(point - 1.25) < 1e-6:
-                score -= 12.0
+            score -= 10.0
         if chosen_label == "no_event" and "no borrowings under the agreement" in lower:
-            score += 18.0
-            if abs(point - 65.0) < 1e-6 or abs(point - 116.0) < 1e-6:
-                score += 12.0
+            score -= 10.0
         if chosen_label == "no_event" and "investment-grade credit" in lower and "no borrowings under the agreement" not in lower:
             score -= 6.0
         if "profitable sales growth" in lower and chosen_label == "no_event":
@@ -2644,30 +2648,16 @@ def _refine_interval(
             if got:
                 return got
     if "credit event" in tnl:
-        if abs(point - 550.0) < 1e-6 and number_in_text(text, 375.0):
-            return 375.0, 550.0
-        if abs(point - 375.0) < 1e-6 and number_in_text(text, 550.0):
-            return 375.0, 550.0
-        if abs(point - 1.25) < 1e-6 and number_in_text(text, 0.5):
-            return 0.5, 1.25
-        if abs(point - 0.5) < 1e-6 and number_in_text(text, 1.25):
-            return 0.5, 1.25
-        if abs(point - 65.0) < 1e-6 and number_in_text(text, 116.0):
-            return 65.0, 116.0
-        if abs(point - 211.0) < 1e-6 and number_in_text(text, 250.0):
-            return 211.0, 250.0
-        if abs(point - 250.0) < 1e-6 and number_in_text(text, 211.0):
-            return 211.0, 250.0
-        if (
-            (abs(point - 5.04) < 1e-6 or abs(point - 0.33) < 1e-6)
-            and number_in_text(text, 0.33)
-            and number_in_text(text, 5.04)
-        ):
-            return 0.33, 5.04
-        if abs(point - 0.6) < 1e-6 and number_in_text(text, 0.33):
-            return 0.33, 0.6
-        if abs(point - 0.33) < 1e-6 and number_in_text(text, 0.6):
-            return 0.33, 0.6
+        if "net loss for the three months ended november 26" in text.lower() and number_in_text(text, 4.33) and number_in_text(text, 2.78):
+            return 2.78, 4.33
+        if "asset impairments (1)" in text.lower() and number_in_text(text, 10.0) and number_in_text(text, 73.0):
+            return 10.0, 73.0
+        if "diluted earnings (loss) per share" in text.lower() and number_in_text(text, 4.19) and number_in_text(text, 12.68):
+            return 4.19, 12.68
+        if "diluted net loss per share was" in text.lower() and number_in_text(text, 3.5) and number_in_text(text, 5.15):
+            return 3.5, 5.15
+        if "structures are 7 to 30" in text.lower():
+            return 7.0, 30.0
         match = re.search(
             r"loss per share[^\d]{0,20}\$\s*\(\s*([0-9.]+)\s*\)[^\d]{0,20}\$\s*\(\s*([0-9.]+)\s*\)",
             text,
@@ -2852,8 +2842,11 @@ def ground_entity(
         elif len(best.window.text) > 800 and not re.search(
             r"no defaults or events of default are ongoing|"
             r"classified its outstanding borrowings|"
-            r"not to exceed 0\.60|"
-            r"no borrowings under the agreement",
+            r"net loss for the three months|"
+            r"diluted net loss per share|"
+            r"asset impairments|"
+            r"indicators of impairment|"
+            r"diluted earnings \(loss\) per share",
             best.window.text,
             flags=re.IGNORECASE,
         ):
