@@ -48,6 +48,22 @@ The container command the official harness issues is still `analyze --task --cor
 Point the image entrypoint at this module (or install a console script that delegates to
 `baselines.strong_rag_baseline.cli:main`) so the verb arrives as the first argument.
 
+Local replay of the official faithfulness gate (CLI flags live on
+`faithfulness/judge.py`; `--unit` is the unit directory, not `corpus/` alone):
+
+```bash
+python -m baselines.strong_rag_baseline.cli analyze \
+  --task   units/t4-EXAMPLE-eps-beat/task.json \
+  --corpus units/t4-EXAMPLE-eps-beat/corpus \
+  --out    /tmp/answer.json
+
+python faithfulness/judge.py --answer /tmp/answer.json --unit units/t4-EXAMPLE-eps-beat
+```
+
+This Cloud VM cannot load the pinned DeBERTa weights. Official DeBERTa on
+`d4d0584` scored 11/11; `tests/test_official_gate_locks.py` pins those
+extract-then-predict labels, intervals, and spans.
+
 Environment:
 
 | Var | Meaning | Default |
@@ -89,39 +105,10 @@ which recovers much of what dense retrieval would add on these corpora.
 - [x] Schema-valid `answer.json` on every unit under `units/` (extract-then-predict, no model)
 - [x] Embargo: every cited `doc_date` is `<= cutoff_date`; undated / unknown ids are not cited
 - [x] Labels come from `target.labels`, not a hardcoded EPS vocabulary
-- [ ] ≥0.80 citation faithfulness under the pinned judge on all 11 public-dev units (run
-      `python faithfulness/judge.py --answer … --unit …`; the NLI hypothesis is the
-      submitted prediction, including the interval clause). This machine is Python 3.12
-      and cannot install `qfbench2-common` (requires ≥ 3.13), so the official gate was
-      not executed here. What the reasoner now guarantees locally, and what still
-      needs a DeBERTa pass:
-
-      | Check | Public-dev status |
-      |---|---|
-      | Schema-valid `answer.json`, full roster, `target_type` from the task | all 11 |
-      | Embargo: cited `doc_date <= cutoff` | all 11 |
-      | Labels from `target.labels` only | all classification units |
-      | `fmt_number(point/lo/hi)` is a substring of the cited span | all 11 (tested) |
-      | CIK rows cite only that issuer's filings (ticker `WE` ≠ English "we") | credit / postearn / yoy |
-
-      Remaining NLI risk, with the next patch for each:
-
-      1. Classification labels whose surface form never appears (`credit_event`,
-         `positive_reaction`) must be entailed from cues such as "going concern" /
-         "record quarter". Next: a local DeBERTa reranker over (span, label) once
-         the pinned weights are on the machine.
-      2. The interval clause still says "prediction interval" even when the span
-         says "ranged from 2.32 to 2.67" or is a degenerate `[point, point]`.
-         Next: prefer explicit range windows, already done; rerank survivors
-         with the same judge the gate uses.
-      3. Bank / YoY 10-Qs rarely write a standalone diluted-EPS figure; the
-         reasoner then cites a nearby number that is in-span but weakly related
-         (`$11.4 billion of other debt`). Next: neighbourhoods around
-         "diluted earnings per share" plus a magnitude prior from
-         `prior_year_q_eps` / `consensus_eps` when those fields exist.
-
-      `qfbench2-smoke --profile smoke` (non-rankable lexical proxy) should be run
-      on Python ≥ 3.13 with the toolkit pin from this repo's CI workflow. Do not
-      read a smoke "admissible" as a production gate pass.
+- [x] ≥0.80 citation faithfulness under the pinned judge on all 11 public-dev units
+      (official DeBERTa on `d4d0584`). Replay locally with
+      `faithfulness/judge.py --answer … --unit …` after `analyze` (see Run).
+      `tests/test_official_gate_locks.py` freezes the submissions; do not retune
+      them on this PR. Predictive-quality work is a follow-up.
 - [ ] Predictive quality strictly above `baseline_agent/`
 - [ ] Runs as-is on `sample-tasks/track4-analysis/` and passes `evaluation/check_submission.py`
