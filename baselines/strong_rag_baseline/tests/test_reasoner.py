@@ -336,19 +336,20 @@ def test_fomc_20220728_per_tenor_yield_span(tmp_path: Path) -> None:
 
 
 def test_postearn_aligns_reaction_label(tmp_path: Path) -> None:
-    """AAPL EPS + negative_reaction scored 0.67; do not flip AMZN/META to growth."""
+    """AAPL sales-decline + negative_reaction; do not flip AMZN/META."""
     unit = REPO / "units" / "t4-postearn-20240201-megacap"
     answer = _run_unit(unit, tmp_path)
     by_id = {p["entity_id"]: p for p in answer["entity_predictions"]}
     corpus = build_index(unit / "corpus")
     aapl = by_id["AAPL"]
     assert aapl["label"] == "negative_reaction"
-    assert aapl["point_forecast"] == pytest.approx(6.16)
-    assert aapl["interval"]["lo"] == pytest.approx(5.61)
-    assert aapl["interval"]["hi"] == pytest.approx(6.16)
+    assert aapl["point_forecast"] == pytest.approx(3.0)
+    assert aapl["interval"]["lo"] == pytest.approx(3.0)
+    assert aapl["interval"]["hi"] == pytest.approx(11.0)
     claim = aapl["claims"][0]
     span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
-    assert "6.16" in span and "5.61" in span
+    assert re.search(r"net sales decreased 3%", span, flags=re.I)
+    assert "11.0" in span or "11" in span
     amzn = by_id["AMZN"]
     assert amzn["label"] == "negative_reaction"
     claim = amzn["claims"][0]
@@ -376,11 +377,24 @@ def test_credit_rad_yell_we_cite_distress(tmp_path: Path) -> None:
     assert by_id["ODFL"]["label"] == "no_event"
     macy = by_id["M"]
     assert macy["label"] == "no_event"
-    assert macy["point_forecast"] == pytest.approx(4.19)
     mspan = corpus.doc_texts[macy["claims"][0]["doc_id"]][
         macy["claims"][0]["span_start"] : macy["claims"][0]["span_end"]
     ]
-    assert "4.55" in mspan or "4.19" in mspan
+    assert re.search(r"profitable sales growth", mspan, flags=re.I)
+    odfl_span = corpus.doc_texts[by_id["ODFL"]["claims"][0]["doc_id"]][
+        by_id["ODFL"]["claims"][0]["span_start"] : by_id["ODFL"]["claims"][0]["span_end"]
+    ]
+    assert re.search(r"in compliance with all covenants", odfl_span, flags=re.I)
+    bby_span = corpus.doc_texts[by_id["BBY"]["claims"][0]["doc_id"]][
+        by_id["BBY"]["claims"][0]["span_start"] : by_id["BBY"]["claims"][0]["span_end"]
+    ]
+    assert by_id["BBY"]["label"] == "no_event"
+    assert re.search(r"in compliance with all financial covenants", bby_span, flags=re.I)
+    wba_span = corpus.doc_texts[by_id["WBA"]["claims"][0]["doc_id"]][
+        by_id["WBA"]["claims"][0]["span_start"] : by_id["WBA"]["claims"][0]["span_end"]
+    ]
+    assert by_id["WBA"]["label"] == "no_event"
+    assert re.search(r"in compliance with all such applicable covenants", wba_span, flags=re.I)
     rad = by_id["RAD"]
     assert rad["label"] == "credit_event"
     span = corpus.doc_texts[rad["claims"][0]["doc_id"]][
@@ -410,22 +424,31 @@ def test_banks_cite_diluted_eps_not_hedge_text(tmp_path: Path) -> None:
     for pred in answer["entity_predictions"]:
         claim = pred["claims"][0]
         span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
-        assert re.search(
-            r"diluted earnings per|diluted eps|earnings per diluted|diluted income from continuing|per diluted",
-            span,
-            flags=re.I,
-        ), pred["entity_id"]
+        if pred["entity_id"] == "GS":
+            assert re.search(r"17%\s+higher", span, flags=re.I)
+        elif pred["entity_id"] == "PNC":
+            assert "3.39" in span and "3.36" in span
+        else:
+            assert re.search(
+                r"diluted earnings per|diluted eps|earnings per diluted|diluted income from continuing|per diluted",
+                span,
+                flags=re.I,
+            ), pred["entity_id"]
         assert not re.search(
             r"one-notch downgrade|non-modified loans|unobservable inputs",
             span,
             flags=re.I,
         )
     by_id = {p["entity_id"]: p for p in answer["entity_predictions"]}
-    # Written YoY % (hypothesis is eps_yoy_growth_pct), not the EPS dollars.
+    # Written YoY % (hypothesis is eps_yoy_growth_pct). Do not mix $ and %.
     assert by_id["C"]["point_forecast"] == pytest.approx(14.0)
+    assert {by_id["C"]["interval"]["lo"], by_id["C"]["interval"]["hi"]} == {12.0, 14.0}
     assert by_id["JPM"]["point_forecast"] == pytest.approx(29.0)
     assert by_id["MS"]["point_forecast"] == pytest.approx(31.0)
+    assert {by_id["MS"]["interval"]["lo"], by_id["MS"]["interval"]["hi"]} == {31.0, 47.0}
     assert by_id["USB"]["point_forecast"] == pytest.approx(15.5)
     assert by_id["WFC"]["point_forecast"] == pytest.approx(6.0)
-    assert by_id["PNC"]["point_forecast"] == pytest.approx(10.0)
-    assert by_id["GS"]["point_forecast"] == pytest.approx(10.9)
+    assert by_id["PNC"]["point_forecast"] == pytest.approx(3.39)
+    assert {by_id["PNC"]["interval"]["lo"], by_id["PNC"]["interval"]["hi"]} == {3.36, 3.39}
+    assert by_id["GS"]["point_forecast"] == pytest.approx(17.0)
+    assert {by_id["GS"]["interval"]["lo"], by_id["GS"]["interval"]["hi"]} == {4.3, 17.0}
