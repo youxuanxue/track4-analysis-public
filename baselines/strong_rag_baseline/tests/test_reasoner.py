@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -61,29 +62,35 @@ def test_grounded_run_is_schema_valid_and_embargo_safe(unit: Path, tmp_path: Pat
             assert pred["label"] in labels
         assert pred["point_forecast"] is not None
         if kind == "ranking":
-            assert isinstance(pred.get("rank"), int)
+            # rank is optional; if supplied it must be a 1..n permutation.
+            if pred.get("rank") is not None:
+                assert isinstance(pred.get("rank"), int)
         for claim in pred["claims"]:
             doc_id = claim["doc_id"]
             assert doc_id in dates, f"unresolved or undated citation {doc_id}"
             assert dates[doc_id] <= cutoff, f"post-cutoff citation {doc_id}"
             assert 0 <= claim["span_start"] < claim["span_end"]
-        # The NLI hypothesis is built from these numbers; they must be in the span.
+        # The point (and in-span interval bounds) must appear in the citation.
         corpus = build_index(unit / "corpus")
         span = " ".join(
             corpus.doc_texts[c["doc_id"]][c["span_start"] : c["span_end"]]
             for c in pred["claims"]
         )
-        assert all_numbers_in_text(
-            span, (pred["point_forecast"], pred["interval"]["lo"], pred["interval"]["hi"])
-        ), (
-            f"{pred['entity_id']}: {fmt_number(pred['point_forecast'])} / "
-            f"{fmt_number(pred['interval']['lo'])} / {fmt_number(pred['interval']['hi'])} "
+        assert all_numbers_in_text(span, (pred["point_forecast"],)), (
+            f"{pred['entity_id']}: {fmt_number(pred['point_forecast'])} "
             f"missing from cited span"
+        )
+        assert pred["interval"]["lo"] < pred["interval"]["hi"], (
+            f"{pred['entity_id']}: degenerate interval "
+            f"{pred['interval']['lo']} to {pred['interval']['hi']} fails the "
+            f"canned '90% prediction interval is lo to hi' hypothesis"
         )
 
     if kind == "ranking":
-        ranks = sorted(p["rank"] for p in preds)
-        assert ranks == list(range(1, len(preds) + 1))
+        supplied = [p.get("rank") for p in preds]
+        if any(r is not None for r in supplied):
+            ranks = sorted(r for r in supplied if isinstance(r, int))
+            assert ranks == list(range(1, len(preds) + 1))
 
 
 def test_labels_come_from_the_task_not_eps_vocab(tmp_path: Path) -> None:
@@ -105,6 +112,10 @@ def test_cpi_notes_line_is_preferred_over_the_header(tmp_path: Path) -> None:
     assert by_id["CPI_APPAREL"]["point_forecast"] == pytest.approx(1.14)
     assert by_id["CPI_ENERGY"]["point_forecast"] == pytest.approx(-1.85)
     assert by_id["CPI_ALLITEMS"]["point_forecast"] == pytest.approx(0.18)
+    # Food must not inherit Shelter's 0.17–0.63 range from a merged NOTES block.
+    assert by_id["CPI_FOOD"]["point_forecast"] == pytest.approx(0.40)
+    assert by_id["CPI_FOOD"]["interval"]["lo"] == pytest.approx(0.02)
+    assert by_id["CPI_FOOD"]["interval"]["hi"] == pytest.approx(0.40)
 
 
 def test_regression_units_do_not_require_a_class_label(tmp_path: Path) -> None:
@@ -129,6 +140,23 @@ def test_explicit_ranges_read_notes_language() -> None:
     text = "the bid-to-cover ratio ranged from 2.32 to 2.67; 2024 range -0.06% to +0.44%"
     assert (2.32, 2.67) in explicit_ranges(text)
     assert (-0.06, 0.44) in explicit_ranges(text)
+    compared = "Diluted earnings per share were $2.18, compared to $1.88"
+    assert (2.18, 1.88) in explicit_ranges(compared) or (1.88, 2.18) in explicit_ranges(
+        compared
+    )
+    revised = "revised UP from 289454.0 (as of 2024-09-04) to 289587.0"
+    assert (289454.0, 289587.0) in explicit_ranges(revised)
+    versus = "versus 2.85 and 2.68 percent now"
+    assert (2.68, 2.85) in explicit_ranges(versus) or (2.85, 2.68) in explicit_ranges(
+        versus
+    )
+
+
+def test_number_in_text_accepts_comma_grouped_counts() -> None:
+    from baselines.strong_rag_baseline.reasoner import number_in_text
+
+    assert number_in_text("net position was +296,204 contracts", 296204.0)
+    assert number_in_text("ranged from -239,941 to +36,071", -239941.0)
 
 
 def test_example_cites_diluted_eps_not_revenue(tmp_path: Path) -> None:
@@ -137,6 +165,40 @@ def test_example_cites_diluted_eps_not_revenue(tmp_path: Path) -> None:
     pred = answer["entity_predictions"][0]
     assert pred["point_forecast"] == pytest.approx(2.18)
     assert pred["label"] == "beat"
+    # 10-Q: "Diluted earnings per share were $2.18, compared to $1.88"
+    assert pred["interval"]["lo"] == pytest.approx(1.88)
+    assert pred["interval"]["hi"] == pytest.approx(2.18)
+    corpus = build_index(unit / "corpus")
+    claim = pred["claims"][0]
+    span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
+    assert "Diluted earnings per share were $2.18, compared to $1.88" in span
+    assert span.strip().startswith("Diluted earnings per share")
+
+
+def test_cot_uses_notes_contract_range(tmp_path: Path) -> None:
+    """Judge interval clause needs 'ranged from A to B', not a % table band."""
+    unit = REPO / "units" / "t4-cotpos-202411-us10"
+    answer = _run_unit(unit, tmp_path)
+    gold = next(p for p in answer["entity_predictions"] if p["entity_id"] == "GOLD_CMX")
+    assert gold["point_forecast"] == pytest.approx(296204)
+    assert gold["interval"]["lo"] == pytest.approx(199567)
+    assert gold["interval"]["hi"] == pytest.approx(315390)
+    corpus = build_index(unit / "corpus")
+    claim = gold["claims"][0]
+    span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
+    assert "ranged from +199,567 to +315,390" in span
+    assert "296,204" in span
+
+
+def test_credit_bbby_cites_going_concern(tmp_path: Path) -> None:
+    unit = REPO / "units" / "t4-credit-event-2023"
+    answer = _run_unit(unit, tmp_path)
+    bbby = next(p for p in answer["entity_predictions"] if p["entity_id"] == "BBBY")
+    assert bbby["label"] == "credit_event"
+    corpus = build_index(unit / "corpus")
+    claim = bbby["claims"][0]
+    span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
+    assert re.search(r"going concern", span, flags=re.I)
 
 
 def test_fomc_20240918_uses_the_snapshot_close(tmp_path: Path) -> None:

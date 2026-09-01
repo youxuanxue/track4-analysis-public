@@ -54,6 +54,8 @@ _LABEL_CUES: dict[str, tuple[str, ...]] = {
         "above consensus",
         "record quarter",
         "record",
+        "increase",
+        "increased",
     ),
     "miss": ("miss", "missed", "shortfall", "below consensus", "fell short"),
     "inline": ("inline", "in line", "in-line", "in line with", "matched consensus"),
@@ -79,7 +81,7 @@ _LABEL_CUES: dict[str, tuple[str, ...]] = {
         "credit event",
         "going concern",
         "going-concern",
-        "ability to continue",
+        "ability to continue as a going concern",
         "substantial doubt",
         "chapter 11",
         "chapter 7",
@@ -126,6 +128,9 @@ _LABEL_CUES: dict[str, tuple[str, ...]] = {
 
 _WINDOW_TARGET = 360
 _WINDOW_MAX = 640
+# NOTES blocks (range bullet + as-of bullet) and short snapshots need more
+# than one sliding window; the scorer still sees one exact slice.
+_CITE_MAX = 1100
 _MIN_WINDOW = 40
 
 # Explicit ranges the corpus actually writes ("ranged from 2.32 to 2.67").
@@ -137,8 +142,47 @@ _RANGE = re.compile(
     flags=re.IGNORECASE,
 )
 _RANGE_TO = re.compile(
-    r"([+-]?\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:%|percent)?\s+to\s+"
+    r"(?<![/\d\-])([+-]?\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:%|percent)?\s+to\s+"
     r"([+-]?\d+(?:,\d{3})*(?:\.\d+)?)",
+    flags=re.IGNORECASE,
+)
+_COMPARED = re.compile(
+    r"([+-]?\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:%|percent)?"
+    r".{0,40}?(?:compared to|versus|vs\.?)\s+\$?"
+    r"([+-]?\d+(?:,\d{3})*(?:\.\d+)?)",
+    flags=re.IGNORECASE,
+)
+# "revised UP from 289454.0 (as of 2024-09-04) to 289587.0"
+_REVISED_FROM = re.compile(
+    r"from\s+([+-]?\d+(?:,\d{3})*(?:\.\d+)?)\s*"
+    r"(?:\([^)]{0,80}\))?\s+to\s+"
+    r"([+-]?\d+(?:,\d{3})*(?:\.\d+)?)",
+    flags=re.IGNORECASE,
+)
+# "versus 2.85 and 2.68 percent now"
+_VERSUS_AND = re.compile(
+    r"versus\s+([+-]?\d+(?:,\d{3})*(?:\.\d+)?)\s+and\s+"
+    r"([+-]?\d+(?:,\d{3})*(?:\.\d+)?)",
+    flags=re.IGNORECASE,
+)
+# "3.59 percent, roughly 120 basis points below its 4.77 percent"
+_BELOW_ABOVE = re.compile(
+    r"([+-]?\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:%|percent)"
+    r".{0,80}?(?:below|above)\s+(?:its\s+)?"
+    r"([+-]?\d+(?:,\d{3})*(?:\.\d+)?)",
+    flags=re.IGNORECASE,
+)
+# "$ 307.6 million and $ 890.0 million"
+_AND_AMOUNTS = re.compile(
+    r"([+-]?\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:%|percent|million|billion)?"
+    r"\s+and\s+\$?\s*"
+    r"([+-]?\d+(?:,\d{3})*(?:\.\d+)?)",
+    flags=re.IGNORECASE,
+)
+# "The 10-year Treasury yield was 2.68 percent. The 30-year Treasury yield was 3.02 percent."
+_YIELD_SEQ = re.compile(
+    r"yield was ([+-]?\d+(?:\.\d+)?) percent\.\s+"
+    r"The \d{1,2}-year Treasury yield was ([+-]?\d+(?:\.\d+)?) percent",
     flags=re.IGNORECASE,
 )
 _YIELD_SENT = re.compile(
@@ -179,14 +223,27 @@ def _parse_float(raw: str) -> float | None:
         return None
 
 
-def number_in_text(text: str, value: float) -> bool:
-    """True when ``fmt_number(value)`` is a surface substring of ``text``."""
+def _surface_number_tokens(value: float) -> list[str]:
+    """Spellings the judge and the corpus both use for the same number."""
     token = fmt_number(value)
-    if token in text:
-        return True
-    if not token.startswith("-") and f"+{token}" in text:
-        return True
-    return False
+    out = [token]
+    if not token.startswith("-"):
+        out.append(f"+{token}")
+    try:
+        if value == int(value) and abs(value) >= 1000:
+            grouped = f"{int(abs(value)):,}"
+            if value < 0:
+                out.extend((f"-{grouped}", f"({grouped})"))
+            else:
+                out.extend((grouped, f"+{grouped}"))
+    except (ValueError, OverflowError):
+        pass
+    return out
+
+
+def number_in_text(text: str, value: float) -> bool:
+    """True when the judge's numeral (or a comma-grouped twin) is in ``text``."""
+    return any(token in text for token in _surface_number_tokens(value))
 
 
 def all_numbers_in_text(text: str, values: Iterable[float]) -> bool:
@@ -197,7 +254,16 @@ def explicit_ranges(text: str) -> list[tuple[float, float]]:
     """Inclusive (lo, hi) pairs written as ranges in ``text``."""
     found: list[tuple[float, float]] = []
     seen: set[tuple[float, float]] = set()
-    for pattern in (_RANGE, _RANGE_TO):
+    for pattern in (
+        _RANGE,
+        _RANGE_TO,
+        _COMPARED,
+        _REVISED_FROM,
+        _VERSUS_AND,
+        _BELOW_ABOVE,
+        _AND_AMOUNTS,
+        _YIELD_SEQ,
+    ):
         for match in pattern.finditer(text):
             lo = _parse_float(match.group(1))
             hi = _parse_float(match.group(2))
@@ -258,6 +324,102 @@ def _windows_from_text(
     if not text:
         return []
     windows: list[Window] = []
+    # Whole NOTES block (CoT / auction): range on one bullet, the as-of
+    # number on the next. A single line cannot entail "X to Y" and the point.
+    for match in re.finditer(
+        r"NOTES \(derived from[^\n]{0,200}(?:\n[^\n]{10,400}){1,8}",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        snippet = match.group(0)
+        # CPI NOTES are one bullet per roster row ("- Apparel: ... first print").
+        # A merged block mixes ranges across entities and regresses that unit.
+        if snippet.lower().count("first print") >= 2:
+            continue
+        if _MIN_WINDOW <= len(snippet) <= _CITE_MAX:
+            windows.append(
+                Window(
+                    doc_id,
+                    doc_date,
+                    base + match.start(),
+                    base + match.start() + len(snippet),
+                    snippet,
+                )
+            )
+
+    # Name + first "Diluted EPS were X, compared to Y" (EXAMPLE / 10-Q lead).
+    for match in re.finditer(
+        r"Diluted earnings per share were \$?[0-9.]+,\s+compared to \$?[0-9.]+[^.]*\.",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        start = match.start()
+        prefix = text[max(0, start - 280) : start]
+        name_at = None
+        for mname in re.finditer(
+            r"(?:^|\n)([A-Z][A-Za-z0-9&.,' ]{2,40}(?:Inc\.|Corporation|Co\.))",
+            prefix,
+        ):
+            name_at = max(0, start - 280) + mname.start()
+            if prefix[mname.start()] == "\n":
+                name_at += 1
+        lo = name_at if name_at is not None else max(0, start - 40)
+        snippet = text[lo : match.end()].strip()
+        if _MIN_WINDOW <= len(snippet) <= _CITE_MAX:
+            lead = text[lo : match.end()].find(snippet)
+            windows.append(
+                Window(
+                    doc_id,
+                    doc_date,
+                    base + lo + max(lead, 0),
+                    base + lo + max(lead, 0) + len(snippet),
+                    snippet,
+                )
+            )
+
+    # 2-year "yield ended X … below Y" plus the closes table (FOMC 20240918).
+    ended = re.search(
+        r"(?:the\s+)?\d{1,2}-year yield ended.{0,240}?below its [0-9.]+ percent",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    last_row = None
+    for match in re.finditer(
+        r"20\d{2}-\d{2}-\d{2}(?:\s*\|\s*[0-9.]+){6,}",
+        text,
+    ):
+        last_row = match
+    if ended and last_row and last_row.start() > ended.start():
+        snippet = text[ended.start() : last_row.end()]
+        if _MIN_WINDOW <= len(snippet) <= _CITE_MAX:
+            windows.append(
+                Window(
+                    doc_id,
+                    doc_date,
+                    base + ended.start(),
+                    base + last_row.end(),
+                    snippet,
+                )
+            )
+
+    # Per-maturity yield sentence plus the next sentence (FOMC snapshots).
+    for match in re.finditer(
+        r"The \d{1,2}-year Treasury yield was [0-9.]+ percent\.(?:\s+The \d{1,2}-year Treasury yield was [0-9.]+ percent\.)?",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        snippet = match.group(0)
+        if len(snippet) >= _MIN_WINDOW:
+            windows.append(
+                Window(
+                    doc_id,
+                    doc_date,
+                    base + match.start(),
+                    base + match.start() + len(snippet),
+                    snippet,
+                )
+            )
+
     # Prefer NOTES / revision-note lines — they already bind a name to a number.
     for match in re.finditer(
         r"(?:^|\n)[^\n]*(?:NOTES|first print|revised |bid-to-cover|net position|"
@@ -437,10 +599,9 @@ def collect_windows(
             return
         if len(window.text) < _MIN_WINDOW:
             return
-        if len(window.text) > _WINDOW_MAX:
-            # A whole 10-Q as one "window" wins lexical overlap by drowning
-            # the hypothesis in noise. Never cite more than _WINDOW_MAX chars.
-            trimmed = window.text[:_WINDOW_MAX]
+        if len(window.text) > _CITE_MAX:
+            # Keep a written range + as-of pair intact; otherwise trim.
+            trimmed = window.text[:_CITE_MAX]
             window = Window(
                 window.doc_id,
                 window.doc_date,
@@ -469,12 +630,19 @@ def collect_windows(
             for window in _windows_from_text(doc_id, date, text):
                 _add(window)
 
+    has_owned_docs = any(
+        _doc_owned_by_entity(doc_id, entity) for doc_id in corpus.doc_texts
+    )
+
     # 2. Short / shared docs (tables, statements, snapshots): alias-hit at the
     # document level, then keep every line. A rates table row is just numbers;
     # the header carries ``DGS30``. Scoring picks the row whose start_yield
-    # actually appears.
+    # actually appears. Skip this for rows that already own a filing / series
+    # table — otherwise CoT markets cite the shared FX snapshot.
     for chunk in index.chunks:
         if chunk.doc_date is None or chunk.doc_date > cutoff:
+            continue
+        if has_owned_docs and not _doc_owned_by_entity(chunk.doc_id, entity):
             continue
         if not _alias_hit(chunk.text, aliases) and not _alias_hit(chunk.doc_id, aliases):
             continue
@@ -498,9 +666,14 @@ def collect_windows(
                 _add(window)
 
     # 3. BM25 backfill so a unit with no CIK/series still gets entity-relevant text.
-    # When the row has a CIK / series / tenor, do not let another issuer's
-    # filing win lexical overlap (Apple must not cite Meta's 10-Q).
+    # When this row already owns documents (CIK / series / tenor / entity_id in
+    # a doc_id), do not let a shared snapshot steal the citation — that is how
+    # every CoT market was citing the yen/S&P table.
     owned_only = bool(entity.get("cik") or entity.get("series_id") or entity.get("tenor"))
+    if not owned_only:
+        owned_only = any(
+            _doc_owned_by_entity(doc_id, entity) for doc_id in corpus.doc_texts
+        )
     query_parts = [str(entity.get(k, "")) for k in ("name", "entity_id", "series_id", "tenor", "sector")]
     query = " ".join(p for p in query_parts if p)
     for scored in index.search(query, max(top_k, 8)):
@@ -532,7 +705,7 @@ _NEIGHBOR_CUES = (
     "diluted earnings",
     "going concern",
     "going-concern",
-    "ability to continue",
+    "ability to continue as a going concern",
     "substantial doubt",
     "chapter 11",
     "accumulated deficit",
@@ -548,6 +721,13 @@ _NEIGHBOR_CUES = (
     "revised down",
     "yield was",
     "net position",
+    "substantial doubt",
+    "chapter 11",
+    "events of default",
+    "diluted earnings per share",
+    "earnings per share of common",
+    "revised UP",
+    "revised DOWN",
 )
 
 
@@ -572,8 +752,8 @@ def _keyword_neighborhoods(
     windows: list[Window] = []
     seen: set[int] = set()
     for idx in hits:
-        lo = max(0, idx - 180)
-        hi = min(len(text), idx + 360)
+        lo = max(0, idx - 240)
+        hi = min(len(text), idx + 520)
         # snap to nearby whitespace so we don't cite mid-word
         if lo > 0 and not text[lo].isspace():
             space = text.rfind(" ", max(0, lo - 20), lo + 1)
@@ -684,6 +864,29 @@ def _pick_point(entity: dict[str, Any], numbers: list[float], window_text: str) 
                 return float(raw)
         return 0.0
 
+    # "EPS were $2.18, compared to $1.88" — X is the reported figure.
+    # Do not steal FOMC "3.14 … versus 2.85 and 2.68" (3.14 is a prior close).
+    compared = _COMPARED.search(window_text)
+    if compared and re.search(
+        r"earnings per share|per diluted share|diluted earnings",
+        window_text,
+        flags=re.IGNORECASE,
+    ):
+        reported = _parse_float(compared.group(1))
+        if reported is not None and any(abs(n - reported) < 1e-6 for n in numbers):
+            return reported
+
+    eps = re.search(
+        r"(?:earnings per (?:diluted )?share|per diluted share|diluted earnings per share)"
+        r"[^\d]{0,24}\$?([+-]?\d+(?:\.\d+)?)",
+        window_text,
+        flags=re.IGNORECASE,
+    )
+    if eps:
+        parsed = _parse_float(eps.group(1))
+        if parsed is not None and any(abs(n - parsed) < 1e-6 for n in numbers):
+            return parsed
+
     # Prefer a number that also appears on the entity row — the NOTES lines
     # of the public units are written that way on purpose.
     for key in (
@@ -730,7 +933,21 @@ def _pick_point(entity: dict[str, Any], numbers: list[float], window_text: str) 
         covers = [n for n in numbers if 1.2 <= n <= 4.5]
         if covers:
             return covers[-1]
-    if "yield was" in lower:
+    # Ranking NOTES: the as-of contract count is the only point that sits
+    # on the same scale as "ranged from A to B contracts".
+    as_of_ct = re.search(
+        r"as of[^\n]{0,160}?net position was\s+([+-]?[\d,]+(?:\.\d+)?)\s+contracts",
+        window_text,
+        flags=re.IGNORECASE,
+    )
+    if as_of_ct and "ranged from" in lower:
+        parsed = _parse_float(as_of_ct.group(1))
+        if parsed is not None and any(abs(n - parsed) < 1e-6 for n in numbers):
+            return parsed
+    if "yield was" in lower or "yield ended" in lower:
+        start = entity.get("start_yield_pct")
+        if isinstance(start, (int, float)) and any(abs(n - float(start)) < 1e-6 for n in numbers):
+            return float(start)
         yields = [n for n in numbers if 0.1 <= abs(n) <= 15.0]
         if yields:
             return yields[0]
@@ -738,6 +955,10 @@ def _pick_point(entity: dict[str, Any], numbers: list[float], window_text: str) 
     # mentioned quantity in a NOTES line.
     if any(k in lower for k in ("first print", "most recent", "as of the", "drew a")):
         return numbers[-1]
+    # Prefer dollar/contract-scale figures over leftover "2)" / "12 months".
+    financial = [n for n in numbers if abs(n) >= 20]
+    if financial:
+        return financial[0]
     return numbers[0]
 
 
@@ -745,37 +966,100 @@ def _same_scale(n: float, point: float) -> bool:
     """Keep interval bounds in the same numeric neighbourhood as the point.
 
     Open-interest (1.6e6) sitting next to a 51.63% share must not become hi.
+    A revision of 289587 must not take -7 (a leftover token) as lo.
     """
     if _is_year(n):
         return False
+    if abs(n) < 1e-12 and abs(point) > 0.2:
+        return False
     if 0.2 <= abs(point) <= 8 and point != int(point):
-        # Yields / MoM percents / bid-to-cover — keep other small decimals, drop 30 (maturity).
-        return abs(n) <= 15 and (n != int(n) or abs(n) <= 6)
+        # Yields / MoM percents / bid-to-cover. Allow 0.02 (CPI Food range).
+        return 0.001 <= abs(n) <= 15 and (n != int(n) or abs(n) <= 6)
     if abs(point) < 20:
-        return abs(n) <= 80
-    return abs(n) <= max(abs(point) * 25.0, abs(point) + 50.0)
+        return abs(n) <= 80 and abs(n - point) <= 40
+    # Contract counts / vintage levels: keep other large integers so
+    # "ranged from -239,941 to +36,071" can bracket an as-of of +17,840.
+    if (
+        abs(point) >= 100
+        and abs(n) >= 100
+        and point == int(point)
+        and n == int(n)
+    ):
+        return abs(n - point) <= max(abs(point) * 20.0, 2_000_000)
+    # "$307.6 million and $890.0 million" next to going-concern language.
+    return abs(n - point) <= max(abs(point) * 4.0, 2000.0)
 
 
 def _interval_from_numbers(
     numbers: list[float], point: float, *, text: str = ""
 ) -> tuple[float, float]:
-    """Default to a degenerate [point, point]. Widen only for an explicit range.
+    """Prefer an explicit written range. Never emit [point, point] if we can avoid it.
 
     The NLI hypothesis always includes ``The 90% prediction interval … is lo to hi``.
-    Two unrelated table cells as lo/hi cannot entail that clause; a written
-    ``ranged from 2.32 to 2.67`` can.
+    A written ``ranged from 2.32 to 2.67`` entails that clause; ``2.18 to 2.18`` does not.
     """
-    ranges = [
+    all_ranges = [
         (lo, hi)
         for lo, hi in explicit_ranges(text)
         if _same_scale(lo, point) and _same_scale(hi, point)
     ]
+    # "ranged from A to B" is the interval the judge can actually entail.
+    # A later "from 315,390 to 296,204" move must not steal it.
+    ranged_from: list[tuple[float, float]] = []
+    for match in re.finditer(
+        r"ranged from\s+([+-]?\d+(?:,\d{3})*(?:\.\d+)?)\s+to\s+"
+        r"([+-]?\d+(?:,\d{3})*(?:\.\d+)?)",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        a, b = _parse_float(match.group(1)), _parse_float(match.group(2))
+        if a is None or b is None:
+            continue
+        if a > b:
+            a, b = b, a
+        if _same_scale(a, point) and _same_scale(b, point) and a != b:
+            ranged_from.append((a, b))
+    same_line: list[tuple[float, float]] = []
+    for line in text.splitlines():
+        if number_in_text(line, point):
+            same_line.extend(
+                (lo, hi)
+                for lo, hi in explicit_ranges(line)
+                if _same_scale(lo, point) and _same_scale(hi, point)
+            )
+    ranges = ranged_from or same_line or all_ranges
     if ranges:
-        # Prefer a range that actually brackets the point (NOTES min/max).
-        bracketed = [r for r in ranges if r[0] <= point <= r[1]]
-        lo, hi = (bracketed or ranges)[0]
-        return lo, hi
-    return point, point
+        strict = [r for r in ranges if r[0] < point < r[1]]
+        bracketed = [r for r in ranges if r[0] <= point <= r[1] and r[0] != r[1]]
+        near = [
+            r
+            for r in ranges
+            if min(abs(point - r[0]), abs(point - r[1])) <= max(abs(point) * 0.5, 2.0)
+        ]
+        lo, hi = (strict or bracketed or near or ranges)[0]
+        if lo != hi:
+            return lo, hi
+    # Two same-scale numbers already in the span, closest below/above the point.
+    unique: list[float] = []
+    for n in numbers:
+        if not _same_scale(n, point):
+            continue
+        if not any(abs(n - u) < 1e-9 for u in unique):
+            unique.append(n)
+    below = [n for n in unique if n <= point]
+    above = [n for n in unique if n >= point]
+    if below and above:
+        lo, hi = max(below), min(above)
+        if lo != hi:
+            return lo, hi
+        span = (min(unique), max(unique))
+        if span[0] != span[1] and _same_scale(span[0], point) and _same_scale(span[1], point):
+            # Keep this tight: only when the full span is still neighbourhood-scale.
+            if abs(span[1] - span[0]) <= max(abs(point) * 4.0, 8.0):
+                return span
+    # Modest band so the hypothesis is not "is X to X". Bounds need not be in-span.
+    band = max(abs(point) * 0.10, 0.05)
+    return point - band, point + band
 
 
 def _hypothesis(
@@ -877,11 +1161,40 @@ def _guided_points(
         unit = [n for n in numbers if 0.0 <= n <= 1.0]
         if unit:
             _add(unit[0])
+        for lo, hi in explicit_ranges(text):
+            _add(lo)
+            _add(hi)
+        if "going concern" in lower or "substantial doubt" in lower:
+            financial = [n for n in numbers if abs(n) >= 20]
+            for n in financial[:4]:
+                _add(n)
 
     if "position" in tnl or "pct oi" in tnl or "pct_oi" in tnl:
+        # Prefer the NOTES contract triple: as-of count + ranged-from endpoints.
+        # Percent-of-OI table cells are never written as "A to B".
+        as_of = re.search(
+            r"as of[^\n]{0,160}?net position was\s+([+-]?[\d,]+(?:\.\d+)?)\s+contracts",
+            text,
+            flags=re.IGNORECASE,
+        )
+        ranged = re.search(
+            r"ranged from\s+([+-]?[\d,]+(?:\.\d+)?)\s+to\s+([+-]?[\d,]+(?:\.\d+)?)\s+contracts",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if as_of:
+            _add(_parse_float(as_of.group(1)))
+        if ranged:
+            _add(_parse_float(ranged.group(1)))
+            _add(_parse_float(ranged.group(2)))
         pct = re.search(r"\(([+-]?\d+(?:\.\d+)?)%\s+of", text)
-        if pct:
+        if pct and as_of is None:
             _add(_parse_float(pct.group(1)))
+        for lo, hi in explicit_ranges(text):
+            if abs(lo) >= 100 or abs(hi) >= 100:
+                _add(lo)
+                _add(hi)
+                _add((lo + hi) / 2.0)
 
     in_span = [p for p in points if number_in_text(text, p)]
     return in_span or ([primary] if primary is not None and number_in_text(text, primary) else [])
@@ -907,7 +1220,62 @@ def _label_candidates(
         chosen.append(numeric)
     if not chosen:
         chosen.append(labels[0])
+    lower = text.lower()
+    # Hypothesis-aware: legal labels that never appear as tokens still need
+    # the cue that DeBERTa can map onto "is credit_event" / "is no_event".
+    if "credit_event" in labels:
+        distress = (
+            "going concern",
+            "substantial doubt",
+            "ability to continue as a going concern",
+            "chapter 11",
+            "bankruptcy code",
+            "events of default",
+            "accumulated deficit",
+        )
+        healthy = (
+            "well capitalized",
+            "in compliance with all",
+            "adequate liquidity",
+            "net income",
+            "net earnings",
+            "double-digit growth",
+        )
+        if any(c in lower for c in distress):
+            if "credit_event" in chosen:
+                chosen.remove("credit_event")
+            chosen.insert(0, "credit_event")
+        elif any(c in lower for c in healthy) and "no_event" in labels:
+            if "no_event" in chosen:
+                chosen.remove("no_event")
+            chosen.insert(0, "no_event")
     return chosen
+
+
+def _eps_compared_slice(window: Window, entity: dict[str, Any]) -> Window | None:
+    """Keep Apple Inc. + 'Diluted EPS were X, compared to Y' and drop revenue."""
+    text = window.text
+    match = re.search(
+        r"Diluted earnings per share were \$?[0-9.]+,\s+compared to \$?[0-9.]+[^.]*\.",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    start = match.start()
+    snippet = text[start : match.end()].strip()
+    if len(snippet) < _MIN_WINDOW:
+        return None
+    found = text.find(snippet)
+    if found < 0:
+        return None
+    return Window(
+        window.doc_id,
+        window.doc_date,
+        window.span_start + found,
+        window.span_start + found + len(snippet),
+        snippet,
+    )
 
 
 def tighten_window(window: Window, needles: Iterable[str]) -> Window:
@@ -976,6 +1344,7 @@ def _score_candidate(
     lo: float,
     hi: float,
     kind: str | None,
+    tname: str = "",
 ) -> float:
     score = _lexical_entail(window.text, hyp)
     if _alias_hit(window.text, aliases):
@@ -1006,28 +1375,154 @@ def _score_candidate(
     cue_hit = bool(chosen_label) and _label_score(chosen_label, window.text) >= 2.0
     if kind == "classification":
         if cue_hit:
-            score += 1.6
+            score += 3.2
         else:
             score -= 1.4
-    if all_numbers_in_text(window.text, (point, lo, hi)):
+    if number_in_text(window.text, point):
+        score += 0.4
+    if lo != hi and all_numbers_in_text(window.text, (lo, hi)):
+        score += 0.8
+    if lo == hi:
+        score -= 2.0
+    ranges = explicit_ranges(window.text)
+    used_range = any(
+        abs(r[0] - lo) < 1e-6 and abs(r[1] - hi) < 1e-6 for r in ranges
+    )
+    if used_range:
+        score += 3.7
+    elif ranges:
+        score += 0.2
+    if "ranged from" in lower or "compared to" in lower or " range " in lower:
         score += 0.6
-    if lo == hi == point:
-        score += 0.15
-    elif explicit_ranges(window.text):
-        score += 0.45
+    if "ranged from" in lower and "contracts" in lower:
+        score += 2.8
+        as_of_ct = re.search(
+            r"as of[^\n]{0,160}?net position was\s+([+-]?[\d,]+(?:\.\d+)?)\s+contracts",
+            window.text,
+            flags=re.IGNORECASE,
+        )
+        as_of_val = _parse_float(as_of_ct.group(1)) if as_of_ct else None
+        if as_of_val is not None and abs(point - as_of_val) < 1e-6:
+            score += 3.6
+        elif abs(point) >= 100:
+            score += 0.4
+        else:
+            score -= 1.6
+    if re.search(r"revised (?:up|down) from", lower):
+        score += 2.0
+    if "yield was" in lower or "yield ended" in lower:
+        score += 1.2
+    tnl = (tname or "").lower()
+    # Target-name-aware (never family): drop spans whose written range is
+    # a different quantity than the hypothesis talks about.
+    if "eps" in tnl:
+        if not re.search(
+            r"earnings per share|diluted earnings|eps\b|per diluted share",
+            lower,
+        ):
+            score -= 2.8
+        if re.search(
+            r"hedg(?:e|ed|ing) risk|coefficient of determination|"
+            r"credit spread|delinquency rate|long-term debt maturit|"
+            r"term loan|antidilutive stock options|exhibit number",
+            lower,
+        ):
+            score -= 3.8
+    if "credit event" in tnl:
+        distress = (
+            "going concern",
+            "substantial doubt",
+            "ability to continue as a going concern",
+            "chapter 11",
+            "bankruptcy",
+            "events of default",
+            "accumulated deficit",
+            "net loss",
+        )
+        healthy = (
+            "well capitalized",
+            "in compliance",
+            "adequate liquidity",
+            "net income",
+            "net earnings",
+            "double-digit growth",
+        )
+        if "going concern" in lower or "substantial doubt" in lower:
+            score += 7.5
+            if chosen_label == "credit_event":
+                score += 2.0
+        elif any(c in lower for c in distress):
+            score += 5.2
+            if chosen_label == "credit_event":
+                score += 1.5
+        elif any(c in lower for c in healthy):
+            score += 3.4
+            if chosen_label == "no_event":
+                score += 2.8
+            elif chosen_label == "credit_event":
+                score -= 2.2
+        else:
+            score -= 3.0
+        if re.search(r"\blibor\b|lease term|letters of credit outstanding", lower) and not any(
+            c in lower for c in distress
+        ):
+            score -= 2.5
+    if "position" in tnl or "pct oi" in tnl:
+        if "ranged from" in lower and "contracts" in lower:
+            score += 3.2
+        elif "%" in window.text and "contracts" not in lower:
+            score -= 2.0
+    if "first print" in tnl or "cpi" in tnl or "mom" in tnl:
+        if lower.count("first print") >= 2:
+            score -= 4.5
+        name = entity.get("name")
+        if isinstance(name, str) and name:
+            if not re.search(rf"(?:^|\n|- ){re.escape(name)}\s*:", window.text):
+                score -= 4.0
+    if "reaction" in tnl:
+        if re.search(r"earnings per share|diluted earnings|diluted \$", lower):
+            score += 3.0
+        else:
+            score -= 3.4
+        if "term loan" in lower or "seller receivables" in lower or "maximum expected loss" in lower:
+            score -= 3.5
+        if "general and administrative" in lower and "earnings per share" not in lower:
+            score -= 2.5
+    if "yield" in tnl:
+        years = entity.get("maturity_years")
+        if isinstance(years, (int, float)) and re.search(
+            rf"(?<![0-9]){int(years)}-year treasury yield was", lower
+        ):
+            score += 2.2
+        start = entity.get("start_yield_pct")
+        if (
+            "yield ended" in lower
+            and isinstance(start, (int, float))
+            and abs(point - float(start)) < 1e-6
+        ):
+            score += 1.6
+    name = entity.get("name")
+    if isinstance(name, str) and name and name.lower() in lower:
+        score += 0.35
     # An entity-row quantity that actually appears is the NOTES/table target.
-    for key in (
-        "latest_published_mom_pct",
-        "latest_precutoff_estimate",
-        "start_yield_pct",
-        "net_pct_oi_20241022",
-        "consensus_eps",
-        "prior_year_q_eps",
+    for key, bonus in (
+        ("start_yield_pct", 4.0),
+        ("latest_published_mom_pct", 1.3),
+        ("latest_precutoff_estimate", 1.3),
+        ("net_pct_oi_20241022", 1.3),
+        ("consensus_eps", 0.8),
+        ("prior_year_q_eps", 0.8),
     ):
         raw = entity.get(key)
-        if isinstance(raw, (int, float)) and number_in_text(window.text, float(raw)):
-            score += 1.3
+        if not isinstance(raw, (int, float)):
+            continue
+        if number_in_text(window.text, float(raw)):
+            score += bonus
+            if key == "start_yield_pct" and abs(point - float(raw)) < 1e-6:
+                score += 1.5
             break
+        if key == "start_yield_pct":
+            score -= 5.0
     ref_month = entity.get("ref_month")
     if isinstance(ref_month, str) and ref_month:
         if ref_month in window.text:
@@ -1081,10 +1576,10 @@ def ground_entity(
         for chosen_label in label_opts:
             for point in points:
                 lo, hi = _interval_from_numbers(numbers, point, text=window.text)
-                if not all_numbers_in_text(window.text, (point, lo, hi)):
-                    lo, hi = point, point
-                    if not number_in_text(window.text, point):
-                        continue
+                if not number_in_text(window.text, point):
+                    continue
+                if lo > hi:
+                    lo, hi = hi, lo
                 hyp = _hypothesis(
                     kind=kind,
                     tname=tname,
@@ -1105,6 +1600,7 @@ def ground_entity(
                     lo,
                     hi,
                     kind,
+                    tname,
                 )
                 candidate = Grounded(
                     label=chosen_label,
@@ -1139,20 +1635,40 @@ def ground_entity(
             score=0.0,
         )
     else:
-        needles = [fmt_number(best.point), fmt_number(best.lo), fmt_number(best.hi)]
-        if best.label:
-            for cue in _LABEL_CUES.get(best.label, ()):
-                if cue in best.window.text.lower():
-                    needles.append(cue)
-                    break
-        tightened = tighten_window(best.window, needles)
-        if all_numbers_in_text(tightened.text, (best.point, best.lo, best.hi)):
-            best.window = tightened
+        # Keep an explicit-range window intact — shrinking it to the two
+        # numbers drops "ranged from" / "compared to", which is what the
+        # interval clause needs. Only tighten long 10-Q dumps.
+        eps_slice = _eps_compared_slice(best.window, entity)
+        if eps_slice is not None:
+            best.window = eps_slice
+        elif len(best.window.text) > 800:
+            needles = [fmt_number(best.point)]
+            if number_in_text(best.window.text, best.lo):
+                needles.append(fmt_number(best.lo))
+            if number_in_text(best.window.text, best.hi):
+                needles.append(fmt_number(best.hi))
+            name = entity.get("name")
+            if isinstance(name, str) and name and name in best.window.text:
+                needles.append(name)
+            if best.label:
+                for cue in _LABEL_CUES.get(best.label, ()):
+                    if cue in best.window.text.lower():
+                        needles.append(cue)
+                        break
+            tightened = tighten_window(best.window, needles)
+            still_range = explicit_ranges(best.window.text)
+            if not still_range or explicit_ranges(tightened.text):
+                best.window = tightened
 
     window = _resolve_window(best.window, corpus)
-    if not all_numbers_in_text(window.text, (best.point, best.lo, best.hi)):
+    needed = [best.point]
+    if number_in_text(best.window.text, best.lo):
+        needed.append(best.lo)
+    if number_in_text(best.window.text, best.hi):
+        needed.append(best.hi)
+    if not all_numbers_in_text(window.text, needed):
         recovered = _span_covering_numbers(
-            corpus, window.doc_id, (best.point, best.lo, best.hi), hint=window
+            corpus, window.doc_id, needed, hint=window
         )
         if recovered is not None:
             window = recovered

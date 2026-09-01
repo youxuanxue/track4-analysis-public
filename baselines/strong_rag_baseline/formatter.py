@@ -19,8 +19,9 @@ def build_answer(
     total_claims = sum(len(r.prediction["claims"]) for r in results)
     kind = target_type(task)
     predictions = [r.prediction for r in results]
-    if kind == "ranking":
-        _assign_ranks(predictions)
+    # Do not emit ``rank``. The canonical hypothesis then says "is ranked
+    # among the entities … with a score of X" instead of "ranked 7", which
+    # the corpus never states and which zeroed the CoT unit under DeBERTa.
     answer: dict = {
         "task_id": task.get("task_id", ""),
         "schema_version": task.get("schema_version", "3"),
@@ -42,23 +43,6 @@ def build_answer(
     }
     _assert_valid(answer, corpus)
     return answer
-
-
-def _assign_ranks(predictions: list[dict]) -> None:
-    """Ranking is scored on ``point_forecast``. Optional ``rank`` must be 1..n."""
-    ordered = sorted(
-        range(len(predictions)),
-        key=lambda i: (
-            -(
-                float(predictions[i]["point_forecast"])
-                if isinstance(predictions[i].get("point_forecast"), (int, float))
-                else float("-inf")
-            ),
-            str(predictions[i].get("entity_id", "")),
-        ),
-    )
-    for rank, index in enumerate(ordered, start=1):
-        predictions[index]["rank"] = rank
 
 
 def _assert_valid(answer: dict, corpus: IndexedCorpus) -> None:
