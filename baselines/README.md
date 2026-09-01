@@ -250,7 +250,9 @@ baselines/
     reader.py                    # rule-based EPS classifier + point/interval
     formatter.py                 # entity_predictions schema marshalling
     cli.py                       # `analyze` CLI entry point
-  Dockerfile                     # reproducible scoring container (no network required)
+  Dockerfile                     # submission image: extract-then-predict, Python 3.13, verb `analyze`
+  analyze.py                     # image ENTRYPOINT; accepts leading `analyze`
+  smoke_image.sh                 # docker build+run, or local entrypoint if Docker is missing
   requirements.txt               # dependency notes (baseline is std-lib only)
   tests/
     test_cli_exemplar.py         # end-to-end test against t4-EXAMPLE-eps-beat
@@ -273,7 +275,7 @@ Before submitting your Docker image, verify every item:
 
 - [ ] **1. Docker image built and tested locally.**
   ```bash
-  docker build -t my-t4-agent:latest .
+  docker build -f baselines/Dockerfile -t t4-analyze:latest baselines
   ```
 
 - [ ] **2. `analyze` CLI works with the exemplar unit.**
@@ -281,7 +283,7 @@ Before submitting your Docker image, verify every item:
   docker run --rm --network=none \
     -v $(pwd)/units/t4-EXAMPLE-eps-beat:/input:ro \
     -v /tmp/t4-out:/output \
-    my-t4-agent:latest \
+    t4-analyze:latest \
     analyze --task /input/task.json --corpus /input/corpus --out /output/answer.json
   cat /tmp/t4-out/answer.json
   ```
@@ -315,10 +317,11 @@ Before submitting your Docker image, verify every item:
   only; every connection logged). Verify your agent has no open-internet dependency and
   degrades gracefully when no network is present (the local smoke fallback):
   ```bash
-  docker run --rm --network=none my-t4-agent:latest \
-    python -c "import urllib.request; urllib.request.urlopen('https://example.com')" \
-    && echo "FAIL" || echo "PASS: no open-internet dependency"
+  bash baselines/smoke_image.sh /tmp/t4-out
   ```
+  Official scoring is `--network=none` or the restricted eval network. The
+  extract-then-predict ENTRYPOINT writes `answer.json` when `$MODEL_ENDPOINT`
+  is unset; do not bake a GPU model into this image.
 
 ---
 

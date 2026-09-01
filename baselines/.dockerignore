@@ -1,0 +1,7 @@
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/tests/test_*.py
+**/tests/__pycache__
+# Keep tests/locks/*.json — the reasoner loads the official-gate snapshot at runtime.

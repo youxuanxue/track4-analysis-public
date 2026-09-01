@@ -56,8 +56,25 @@ python -m baselines.strong_rag_baseline.cli analyze \
 ```
 
 The container command the official harness issues is still `analyze --task --corpus --out`.
-Point the image entrypoint at this module (or install a console script that delegates to
-`baselines.strong_rag_baseline.cli:main`) so the verb arrives as the first argument.
+`baselines/Dockerfile` + `baselines/analyze.py` are the submission image: Python 3.13,
+`LABEL qfbench2.interface_version="2.0"`, ENTRYPOINT that consumes the leading verb.
+The image is extract-then-predict (stdlib + this package), not a BYO-large LLM.
+
+```bash
+# from the repository root — build context is baselines/ (see baselines/Dockerfile)
+docker build -f baselines/Dockerfile -t t4-analyze:latest baselines
+
+docker run --rm --network=none \
+  -v "$(pwd)/units/t4-EXAMPLE-eps-beat":/input:ro \
+  -v /tmp/t4-out:/output \
+  t4-analyze:latest \
+  analyze --task /input/task.json --corpus /input/corpus --out /output/answer.json
+```
+
+This Cloud VM cannot run `docker build`. `baselines/smoke_image.sh` builds and runs
+the image when Docker is present; otherwise it exercises `baselines/analyze.py`
+with the same `analyze --task --corpus --out` argv and says so. Image-size
+limits live on the runtime-constraints table in `README.md`.
 
 Local replay of the official faithfulness gate (CLI flags live on
 `faithfulness/judge.py`; `--unit` is the unit directory, not `corpus/` alone):
