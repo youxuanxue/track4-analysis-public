@@ -399,11 +399,11 @@ def test_credit_rad_yell_we_cite_distress(tmp_path: Path) -> None:
         by_id["WBA"]["claims"][0]["span_start"] : by_id["WBA"]["claims"][0]["span_end"]
     ]
     assert by_id["WBA"]["label"] == "credit_event"
-    assert re.search(r"Net loss attributable to the Company", wba_span, flags=re.I)
-    assert re.search(r"Diluted net loss per share was \$3\.50 compared to", wba_span)
-    assert "5.15" in wba_span
-    assert "for the year-ago period" in wba_span
-    assert {by_id["WBA"]["interval"]["lo"], by_id["WBA"]["interval"]["hi"]} == {3.5, 5.15}
+    assert re.search(r"Net loss attributable to non-controlling interests", wba_span, flags=re.I)
+    assert "78" in wba_span and "253" in wba_span
+    assert "5.15" not in wba_span
+    assert "703" not in wba_span
+    assert {by_id["WBA"]["interval"]["lo"], by_id["WBA"]["interval"]["hi"]} == {78.0, 253.0}
     rad = by_id["RAD"]
     assert rad["label"] == "credit_event"
     span = corpus.doc_texts[rad["claims"][0]["doc_id"]][

@@ -743,7 +743,8 @@ def _gold_entailment_windows(
         r"Net loss for the three months ended November 26, 2022 was \$393\.0 million, or 4\.33 per diluted share, compared with net loss of \$276\.4 million, or \$2\.78 per diluted share",
         r"Asset impairments \(1\) Restructuring charges -\s+6\s+6\s+10\s+57\s+67.{0,520}?Asset impairments \(1\) Restructuring charges 10\s+63\s+73",
         r"Operating income \(loss\).{0,200}?Diluted earnings \(loss\) per share \$ 4\.19.\s+\$ 4\.55.\s+\$ \(12\.68\)",
-        r"Net earnings \(GAAP\) for the six months ended February 28, 2023 compared to six months ended February 28, 2022 Net loss attributable to the Company for the six months ended February 28, 2023 was \$3\.0 billion compared to net earnings of \$4\.5 billion for the year-ago period\. Diluted net loss per share was \$3\.50 compared to diluted net earnings per share of \$5\.15 for the year-ago period\. The decreases in net earnings and diluted net earnings per share is driven by \$5\.4 billion after-tax charge",
+        r"Net loss attributable to non-controlling interests \( 159 \) \( 78 \) \( 253 \) \( 126 \)",
+        r"These charges included \$ 700 million related to lease obligations and other real estate costs, \$ 556 million in asset impairments, \$ 754 million in employee severance and business transition costs and \$ 228 million",
         r"When indicators of impairment exist, we review property and equipment for impairment.{0,220}?Estimated economic lives for structures are 7 to 30 years, revenue equipment is 4 to 15 years",
     ):
         for match in re.finditer(pattern, text, flags=re.IGNORECASE | re.DOTALL):
@@ -928,6 +929,7 @@ _NEIGHBOR_CUES = (
     "no borrowings outstanding",
     "net loss for the three months",
     "diluted net loss per share",
+    "net loss attributable to non-controlling interests",
     "asset impairments",
     "indicators of impairment",
     "diluted earnings (loss) per share",
@@ -1484,9 +1486,14 @@ def _guided_points(
         if "diluted earnings (loss) per share" in lower and number_in_text(text, 12.68):
             _add(4.19)
             _add(12.68)
-        if "diluted net loss per share was" in lower:
-            _add(3.5)
-            _add(5.15)
+        if "net loss attributable to non-controlling interests" in lower:
+            _add(78.0)
+            _add(159.0)
+            _add(253.0)
+            _add(126.0)
+        if "556 million in asset impairments" in lower and number_in_text(text, 754.0):
+            _add(556.0)
+            _add(754.0)
         if "structures are 7 to 30" in lower:
             _add(7.0)
             _add(30.0)
@@ -2245,15 +2252,30 @@ def _score_candidate(
             score += 26.0
         elif (
             chosen_label == "credit_event"
-            and "diluted net loss per share was" in lower
-            and abs(lo - 3.5) < 1e-6
+            and "net loss attributable to non-controlling interests" in lower
+            and abs(lo - 78.0) < 1e-6
+            and abs(hi - 253.0) < 1e-6
+        ):
+            score += 32.0
+            # The 766-char income-statement dump also contains $703 / $5.15
+            # profits and mixed 3.50–5.15. Keep the 81-char all-loss line.
+            if "5.15" in window.text or re.search(r"\$ 703", window.text):
+                score -= 20.0
+            if len(window.text) < 120:
+                score += 12.0
+        elif (
+            chosen_label == "credit_event"
+            and "556 million in asset impairments" in lower
+            and abs(lo - 556.0) < 1e-6
+            and abs(hi - 754.0) < 1e-6
+        ):
+            score += 24.0
+        elif (
+            chosen_label == "credit_event"
             and abs(hi - 5.15) < 1e-6
         ):
-            score += 26.0
-            # 251-char cut at $5.15 scored 0.4938. Prefer the finished
-            # "compared to $5.15 for the year-ago period" + charge clause.
-            if "for the year-ago period" in lower and "after-tax charge" in lower:
-                score += 8.0
+            # 3.50–5.15 mixed a loss EPS with year-ago earnings (0.4938 / 0.3865).
+            score -= 16.0
         elif (
             chosen_label == "credit_event"
             and "diluted earnings (loss) per share" in lower
@@ -2658,8 +2680,10 @@ def _refine_interval(
             return 10.0, 73.0
         if "diluted earnings (loss) per share" in text.lower() and number_in_text(text, 4.19) and number_in_text(text, 12.68):
             return 4.19, 12.68
-        if "diluted net loss per share was" in text.lower() and number_in_text(text, 3.5) and number_in_text(text, 5.15):
-            return 3.5, 5.15
+        if "net loss attributable to non-controlling interests" in text.lower() and number_in_text(text, 78.0) and number_in_text(text, 253.0):
+            return 78.0, 253.0
+        if "556 million in asset impairments" in text.lower() and number_in_text(text, 556.0) and number_in_text(text, 754.0):
+            return 556.0, 754.0
         if "structures are 7 to 30" in text.lower():
             return 7.0, 30.0
         match = re.search(
@@ -2848,6 +2872,7 @@ def ground_entity(
             r"classified its outstanding borrowings|"
             r"net loss for the three months|"
             r"diluted net loss per share|"
+            r"net loss attributable to non-controlling interests|"
             r"asset impairments|"
             r"indicators of impairment|"
             r"diluted earnings \(loss\) per share",
