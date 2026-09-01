@@ -743,7 +743,7 @@ def _gold_entailment_windows(
         r"Net loss for the three months ended November 26, 2022 was \$393\.0 million, or 4\.33 per diluted share, compared with net loss of \$276\.4 million, or \$2\.78 per diluted share",
         r"Asset impairments \(1\) Restructuring charges -\s+6\s+6\s+10\s+57\s+67.{0,520}?Asset impairments \(1\) Restructuring charges 10\s+63\s+73",
         r"Operating income \(loss\).{0,200}?Diluted earnings \(loss\) per share \$ 4\.19.\s+\$ 4\.55.\s+\$ \(12\.68\)",
-        r"Net loss attributable to the Company for the six months ended February 28, 2023 was \$3\.0 billion compared to net earnings of \$4\.5 billion.{0,80}?Diluted net loss per share was \$3\.50 compared to diluted net earnings per share of \$5\.15",
+        r"Net earnings \(GAAP\) for the six months ended February 28, 2023 compared to six months ended February 28, 2022 Net loss attributable to the Company for the six months ended February 28, 2023 was \$3\.0 billion compared to net earnings of \$4\.5 billion for the year-ago period\. Diluted net loss per share was \$3\.50 compared to diluted net earnings per share of \$5\.15 for the year-ago period\. The decreases in net earnings and diluted net earnings per share is driven by \$5\.4 billion after-tax charge",
         r"When indicators of impairment exist, we review property and equipment for impairment.{0,220}?Estimated economic lives for structures are 7 to 30 years, revenue equipment is 4 to 15 years",
     ):
         for match in re.finditer(pattern, text, flags=re.IGNORECASE | re.DOTALL):
@@ -2245,11 +2245,15 @@ def _score_candidate(
             score += 26.0
         elif (
             chosen_label == "credit_event"
-            and "diluted net loss per share" in lower
+            and "diluted net loss per share was" in lower
             and abs(lo - 3.5) < 1e-6
             and abs(hi - 5.15) < 1e-6
         ):
             score += 26.0
+            # 251-char cut at $5.15 scored 0.4938. Prefer the finished
+            # "compared to $5.15 for the year-ago period" + charge clause.
+            if "for the year-ago period" in lower and "after-tax charge" in lower:
+                score += 8.0
         elif (
             chosen_label == "credit_event"
             and "diluted earnings (loss) per share" in lower

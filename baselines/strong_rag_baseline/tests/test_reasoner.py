@@ -399,9 +399,10 @@ def test_credit_rad_yell_we_cite_distress(tmp_path: Path) -> None:
         by_id["WBA"]["claims"][0]["span_start"] : by_id["WBA"]["claims"][0]["span_end"]
     ]
     assert by_id["WBA"]["label"] == "credit_event"
-    assert re.search(r"net loss", wba_span, flags=re.I)
-    assert "3.50" in wba_span or "3.5" in wba_span
+    assert re.search(r"Net loss attributable to the Company", wba_span, flags=re.I)
+    assert re.search(r"Diluted net loss per share was \$3\.50 compared to", wba_span)
     assert "5.15" in wba_span
+    assert "for the year-ago period" in wba_span
     assert {by_id["WBA"]["interval"]["lo"], by_id["WBA"]["interval"]["hi"]} == {3.5, 5.15}
     rad = by_id["RAD"]
     assert rad["label"] == "credit_event"
