@@ -14,8 +14,12 @@ model still runs; a reply that yields zero grounded claims is filled by the same
 One agent for all units, no `family` dispatch; deterministic given the corpus and seed.
 
 **Status: extract-then-predict is the offline path.** Schema-valid, embargo-safe answers on
-every public-dev unit without a model. Predictive quality can still improve when a house model
-is present; the faithfulness-first milestone is the reasoner.
+every public-dev unit without a model. The reasoner now keeps the submitted
+`label` / `point_forecast` / interval tokens inside the cited span (degenerate
+`lo = hi = point` unless the span writes an explicit range such as
+`ranged from 2.32 to 2.67`), and prefers NOTES / diluted-EPS / going-concern
+windows over 10-Q headers. Predictive quality can still improve when a house
+model is present; the faithfulness-first milestone is the reasoner.
 
 ## Run
 
@@ -87,12 +91,37 @@ which recovers much of what dense retrieval would add on these corpora.
 - [x] Labels come from `target.labels`, not a hardcoded EPS vocabulary
 - [ ] ≥0.80 citation faithfulness under the pinned judge on all 11 public-dev units (run
       `python faithfulness/judge.py --answer … --unit …`; the NLI hypothesis is the
-      submitted prediction, including the interval clause). The extract-then-predict
-      reasoner puts the predicted number / a legal label in the cited span so the
-      hypothesis has a lexical hook; the remaining risk is the interval clause
-      (`The 90% prediction interval … is lo to hi`), which the corpus rarely states
-      as a prediction interval. Next patch: a local NLI reranker over candidate
-      (span, lo, hi) triples, once `qfbench2-common` (Python ≥ 3.13) and the pinned
-      DeBERTa weights are on the machine.
+      submitted prediction, including the interval clause). This machine is Python 3.12
+      and cannot install `qfbench2-common` (requires ≥ 3.13), so the official gate was
+      not executed here. What the reasoner now guarantees locally, and what still
+      needs a DeBERTa pass:
+
+      | Check | Public-dev status |
+      |---|---|
+      | Schema-valid `answer.json`, full roster, `target_type` from the task | all 11 |
+      | Embargo: cited `doc_date <= cutoff` | all 11 |
+      | Labels from `target.labels` only | all classification units |
+      | `fmt_number(point/lo/hi)` is a substring of the cited span | all 11 (tested) |
+      | CIK rows cite only that issuer's filings (ticker `WE` ≠ English "we") | credit / postearn / yoy |
+
+      Remaining NLI risk, with the next patch for each:
+
+      1. Classification labels whose surface form never appears (`credit_event`,
+         `positive_reaction`) must be entailed from cues such as "going concern" /
+         "record quarter". Next: a local DeBERTa reranker over (span, label) once
+         the pinned weights are on the machine.
+      2. The interval clause still says "prediction interval" even when the span
+         says "ranged from 2.32 to 2.67" or is a degenerate `[point, point]`.
+         Next: prefer explicit range windows, already done; rerank survivors
+         with the same judge the gate uses.
+      3. Bank / YoY 10-Qs rarely write a standalone diluted-EPS figure; the
+         reasoner then cites a nearby number that is in-span but weakly related
+         (`$11.4 billion of other debt`). Next: neighbourhoods around
+         "diluted earnings per share" plus a magnitude prior from
+         `prior_year_q_eps` / `consensus_eps` when those fields exist.
+
+      `qfbench2-smoke --profile smoke` (non-rankable lexical proxy) should be run
+      on Python ≥ 3.13 with the toolkit pin from this repo's CI workflow. Do not
+      read a smoke "admissible" as a production gate pass.
 - [ ] Predictive quality strictly above `baseline_agent/`
 - [ ] Runs as-is on `sample-tasks/track4-analysis/` and passes `evaluation/check_submission.py`

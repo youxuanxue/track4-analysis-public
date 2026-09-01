@@ -45,14 +45,41 @@ _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
 # Polarity cues applied ONLY when the matching legal label is on the task.
 # Keys are legal labels; values are extra surface forms that support that label.
 _LABEL_CUES: dict[str, tuple[str, ...]] = {
-    "beat": ("beat", "beats", "beating", "exceeded", "outperformed", "above consensus"),
+    "beat": (
+        "beat",
+        "beats",
+        "beating",
+        "exceeded",
+        "outperformed",
+        "above consensus",
+        "record quarter",
+        "record",
+    ),
     "miss": ("miss", "missed", "shortfall", "below consensus", "fell short"),
     "inline": ("inline", "in line", "in-line", "in line with", "matched consensus"),
-    "up": ("up", "increase", "increased", "rose", "revised up", "revised higher", "upward"),
-    "down": ("down", "decrease", "decreased", "fell", "revised down", "revised lower", "downward"),
+    "up": (
+        "revised up",
+        "revised higher",
+        "revised upward",
+        "increase",
+        "increased",
+        "rose",
+        "upward",
+    ),
+    "down": (
+        "revised down",
+        "revised lower",
+        "revised downward",
+        "decrease",
+        "decreased",
+        "fell",
+        "downward",
+    ),
     "credit_event": (
         "credit event",
         "going concern",
+        "going-concern",
+        "ability to continue",
         "substantial doubt",
         "chapter 11",
         "chapter 7",
@@ -61,16 +88,18 @@ _LABEL_CUES: dict[str, tuple[str, ...]] = {
         "distressed",
         "insolvency",
         "restructuring",
+        "accumulated deficit",
+        "net loss",
     ),
     "no_event": (
         "no event",
-        "going concern not",
         "no substantial doubt",
         "well capitalized",
         "adequate liquidity",
         "strong liquidity",
         "profitable",
         "net income",
+        "generated cash",
     ),
     "positive_reaction": (
         "positive",
@@ -99,15 +128,89 @@ _WINDOW_TARGET = 360
 _WINDOW_MAX = 640
 _MIN_WINDOW = 40
 
+# Explicit ranges the corpus actually writes ("ranged from 2.32 to 2.67").
+_RANGE = re.compile(
+    r"(?:ranged from|range|between|from)\s+"
+    r"([+-]?\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:%|percent)?\s+"
+    r"(?:to|and|–|—)\s+"
+    r"([+-]?\d+(?:,\d{3})*(?:\.\d+)?)",
+    flags=re.IGNORECASE,
+)
+_RANGE_TO = re.compile(
+    r"([+-]?\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:%|percent)?\s+to\s+"
+    r"([+-]?\d+(?:,\d{3})*(?:\.\d+)?)",
+    flags=re.IGNORECASE,
+)
+_YIELD_SENT = re.compile(
+    r"(?:the\s+)?(\d{1,2})-year treasury yield was ([+-]?\d+(?:\.\d+)?)",
+    flags=re.IGNORECASE,
+)
+_DATE_TOKEN = re.compile(r"\b(?:19|20)\d{2}-\d{2}-\d{2}\b")
+_MONTH_DAY_YEAR = re.compile(
+    r"\b(?:January|February|March|April|May|June|July|August|September|"
+    r"October|November|December)\s+\d{1,2},?\s+\d{4}\b",
+    flags=re.IGNORECASE,
+)
+_DAY_YEAR = re.compile(r"\b\d{1,2},\s+\d{4}\b")
+_TENOR_TOKEN = re.compile(r"\b\d{1,2}-years?\b", flags=re.IGNORECASE)
+
 
 def _is_year(value: float) -> bool:
     return value == int(value) and 1900 <= abs(value) <= 2100
 
 
+def _mask_non_quantities(text: str) -> str:
+    """Blank dates and '10-year' so 10 / 2024 cannot become the forecast."""
+    masked = _DATE_TOKEN.sub(" DATE ", text)
+    masked = _MONTH_DAY_YEAR.sub(" DATE ", masked)
+    masked = _DAY_YEAR.sub(" DATE ", masked)
+    return _TENOR_TOKEN.sub(" TENOR ", masked)
+
+
 def _usable_numbers(numbers: list[float]) -> list[float]:
     """Drop calendar years so 2024 in a date cannot become interval.hi."""
-    kept = [n for n in numbers if not _is_year(n)]
-    return kept or numbers
+    return [n for n in numbers if not _is_year(n)]
+
+
+def _parse_float(raw: str) -> float | None:
+    try:
+        return float(raw.replace(",", ""))
+    except ValueError:
+        return None
+
+
+def number_in_text(text: str, value: float) -> bool:
+    """True when ``fmt_number(value)`` is a surface substring of ``text``."""
+    token = fmt_number(value)
+    if token in text:
+        return True
+    if not token.startswith("-") and f"+{token}" in text:
+        return True
+    return False
+
+
+def all_numbers_in_text(text: str, values: Iterable[float]) -> bool:
+    return all(number_in_text(text, v) for v in values)
+
+
+def explicit_ranges(text: str) -> list[tuple[float, float]]:
+    """Inclusive (lo, hi) pairs written as ranges in ``text``."""
+    found: list[tuple[float, float]] = []
+    seen: set[tuple[float, float]] = set()
+    for pattern in (_RANGE, _RANGE_TO):
+        for match in pattern.finditer(text):
+            lo = _parse_float(match.group(1))
+            hi = _parse_float(match.group(2))
+            if lo is None or hi is None or _is_year(lo) or _is_year(hi):
+                continue
+            if lo > hi:
+                lo, hi = hi, lo
+            key = (lo, hi)
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(key)
+    return found
 
 
 def _tokens(text: str) -> set[str]:
@@ -158,7 +261,7 @@ def _windows_from_text(
     # Prefer NOTES / revision-note lines — they already bind a name to a number.
     for match in re.finditer(
         r"(?:^|\n)[^\n]*(?:NOTES|first print|revised |bid-to-cover|net position|"
-        r"yield was |basis point)[^\n]{10,400}",
+        r"yield was |basis point|diluted earnings|earnings per)[^\n]{10,400}",
         text,
         flags=re.IGNORECASE,
     ):
@@ -173,6 +276,19 @@ def _windows_from_text(
                 Window(doc_id, doc_date, base + start, base + end, text[start:end])
             )
 
+    # One window per line / bullet so a NOTES line is citable on its own.
+    line_start = 0
+    for raw_line in text.splitlines(keepends=True):
+        line = raw_line.rstrip("\n")
+        stripped = line.strip()
+        if len(stripped) >= _MIN_WINDOW:
+            # leading whitespace stays inside the slice so offsets match the doc
+            lead = len(line) - len(line.lstrip()) if line else 0
+            start = line_start + lead
+            end = line_start + lead + len(stripped)
+            windows.append(Window(doc_id, doc_date, base + start, base + end, stripped))
+        line_start += len(raw_line)
+
     # Forced slices so a 10-Q that is one giant line still yields citable windows.
     for start in range(0, len(text), _WINDOW_TARGET):
         end = min(len(text), start + _WINDOW_MAX)
@@ -180,34 +296,30 @@ def _windows_from_text(
         if len(snippet) >= _MIN_WINDOW:
             windows.append(Window(doc_id, doc_date, base + start, base + end, snippet))
 
+    # Sentence windows are exact slices of ``text`` (never re-joined with
+    # spaces — a rewritten string will not resolve in the scorer's document).
     parts = _SENTENCE_SPLIT.split(text)
     cursor = 0
-    buf = ""
     buf_start = 0
+    buf_end = 0
     for part in parts:
         idx = text.find(part, cursor)
         if idx < 0:
             idx = cursor
-        if not buf:
+        if buf_end <= buf_start:
             buf_start = idx
-        if buf:
-            buf += " "
-        buf += part.strip()
-        cursor = idx + len(part)
-        if len(buf) >= _WINDOW_TARGET:
-            snippet = buf[:_WINDOW_MAX]
-            windows.append(
-                Window(
-                    doc_id,
-                    doc_date,
-                    base + buf_start,
-                    base + buf_start + len(snippet),
-                    snippet,
+        buf_end = idx + len(part)
+        cursor = buf_end
+        if buf_end - buf_start >= _WINDOW_TARGET:
+            end = min(len(text), buf_start + _WINDOW_MAX)
+            snippet = text[buf_start:end]
+            if len(snippet) >= _MIN_WINDOW:
+                windows.append(
+                    Window(doc_id, doc_date, base + buf_start, base + end, snippet)
                 )
-            )
-            buf = ""
-    if buf.strip() and len(buf.strip()) >= _MIN_WINDOW:
-        snippet = buf.strip()[:_WINDOW_MAX]
+            buf_start = buf_end
+    if buf_end - buf_start >= _MIN_WINDOW:
+        snippet = text[buf_start:buf_end][:_WINDOW_MAX]
         windows.append(
             Window(
                 doc_id,
@@ -218,6 +330,13 @@ def _windows_from_text(
             )
         )
     return windows
+
+
+_STOP_ALIASES = {
+    "a", "i", "am", "an", "as", "at", "be", "by", "c", "do", "go", "he",
+    "if", "in", "is", "it", "m", "me", "ms", "my", "no", "of", "on", "or",
+    "so", "to", "up", "us", "we",
+}
 
 
 def _entity_aliases(entity: dict[str, Any]) -> list[str]:
@@ -233,8 +352,15 @@ def _entity_aliases(entity: dict[str, Any]) -> list[str]:
         "ticker",
     ):
         value = entity.get(key)
-        if isinstance(value, str) and value.strip():
-            aliases.append(value.strip())
+        if not isinstance(value, str) or not value.strip():
+            continue
+        token = value.strip()
+        # Tickers like WE / C / M are English words and match every 10-K.
+        if key in {"entity_id", "ticker"} and token.lower() in _STOP_ALIASES:
+            continue
+        if key in {"entity_id", "ticker"} and len(token) <= 1:
+            continue
+        aliases.append(token)
     cik = entity.get("cik")
     if isinstance(cik, str) and cik.isdigit():
         aliases.append(cik.zfill(10))
@@ -343,11 +469,17 @@ def collect_windows(
             for window in _windows_from_text(doc_id, date, text):
                 _add(window)
 
-    # 2. Short / shared docs (tables, statements, snapshots): alias-hit windows.
+    # 2. Short / shared docs (tables, statements, snapshots): alias-hit at the
+    # document level, then keep every line. A rates table row is just numbers;
+    # the header carries ``DGS30``. Scoring picks the row whose start_yield
+    # actually appears.
     for chunk in index.chunks:
         if chunk.doc_date is None or chunk.doc_date > cutoff:
             continue
         if not _alias_hit(chunk.text, aliases) and not _alias_hit(chunk.doc_id, aliases):
+            continue
+        owned_doc = _doc_owned_by_entity(chunk.doc_id, entity)
+        if owned_doc and len(corpus.doc_texts.get(chunk.doc_id, "")) > 8000:
             continue
         if len(chunk.text) <= _WINDOW_MAX:
             _add(
@@ -363,14 +495,18 @@ def collect_windows(
             for window in _windows_from_text(
                 chunk.doc_id, chunk.doc_date, chunk.text, base=chunk.span_start
             ):
-                if _alias_hit(window.text, aliases):
-                    _add(window)
+                _add(window)
 
     # 3. BM25 backfill so a unit with no CIK/series still gets entity-relevant text.
+    # When the row has a CIK / series / tenor, do not let another issuer's
+    # filing win lexical overlap (Apple must not cite Meta's 10-Q).
+    owned_only = bool(entity.get("cik") or entity.get("series_id") or entity.get("tenor"))
     query_parts = [str(entity.get(k, "")) for k in ("name", "entity_id", "series_id", "tenor", "sector")]
     query = " ".join(p for p in query_parts if p)
     for scored in index.search(query, max(top_k, 8)):
         chunk = scored.chunk
+        if owned_only and not _doc_owned_by_entity(chunk.doc_id, entity):
+            continue
         if len(chunk.text) <= _WINDOW_MAX:
             _add(
                 Window(
@@ -392,16 +528,26 @@ def collect_windows(
 
 _NEIGHBOR_CUES = (
     "earnings per share",
+    "earnings per diluted share",
     "diluted earnings",
     "going concern",
+    "going-concern",
+    "ability to continue",
     "substantial doubt",
     "chapter 11",
+    "accumulated deficit",
     "net loss",
     "net income",
     "liquidity",
     "guidance",
-    "revenue",
+    "record quarter",
     "basis point",
+    "bid-to-cover",
+    "first print",
+    "revised up",
+    "revised down",
+    "yield was",
+    "net position",
 )
 
 
@@ -440,9 +586,12 @@ def _keyword_neighborhoods(
         if lo in seen:
             continue
         seen.add(lo)
-        snippet = text[lo:hi].strip()
+        raw = text[lo:hi]
+        lead = len(raw) - len(raw.lstrip())
+        snippet = raw.strip()
         if len(snippet) >= _MIN_WINDOW:
-            windows.append(Window(doc_id, doc_date, lo, lo + len(snippet), snippet))
+            start = lo + lead
+            windows.append(Window(doc_id, doc_date, start, start + len(snippet), snippet))
     return windows
 
 
@@ -454,13 +603,20 @@ def _keyword_neighborhoods(
 def _label_score(label: str, text: str) -> float:
     lower = text.lower()
     score = 0.0
-    if label.lower() in lower:
+    needle = label.lower().replace("_", " ")
+    # Short labels like "up" / "down" must be words, not substrings of "support".
+    if len(needle) <= 4:
+        if re.search(rf"(?<![a-z]){re.escape(needle)}(?![a-z])", lower):
+            score += 3.0
+    elif needle in lower or label.lower() in lower:
         score += 3.0
     for cue in _LABEL_CUES.get(label, ()):
         if cue in lower:
             score += 2.0
     # token overlap of the label itself (credit_event → credit, event)
     for tok in _tokens(label.replace("_", " ")):
+        if len(tok) <= 2:
+            continue
         if tok in _tokens(lower):
             score += 0.4
     return score
@@ -542,9 +698,21 @@ def _pick_point(entity: dict[str, Any], numbers: list[float], window_text: str) 
         raw = entity.get(key)
         if not isinstance(raw, (int, float)):
             continue
-        hit = _closest(numbers, float(raw))
-        if hit is not None and abs(hit - float(raw)) < 1e-6:
-            return hit
+        exact = key not in {"consensus_eps", "prior_year_q_eps"}
+        pool = numbers
+        if not exact:
+            # Prefer share-like decimals; drop calendar days (1..31) that
+            # survived masking and sit closer to 1.50 than $2.18 EPS does.
+            decimals = [n for n in numbers if n != int(n) or abs(n) > 31]
+            pool = decimals or numbers
+        hit = _closest(pool, float(raw), prefer_nearby=not exact)
+        if hit is None:
+            continue
+        if exact and abs(hit - float(raw)) >= 1e-6:
+            continue
+        if not exact and abs(hit - float(raw)) > max(2.0, abs(float(raw)) * 2):
+            continue
+        return hit
 
     lower = window_text.lower()
     recent = re.search(
@@ -588,26 +756,26 @@ def _same_scale(n: float, point: float) -> bool:
     return abs(n) <= max(abs(point) * 25.0, abs(point) + 50.0)
 
 
-def _interval_from_numbers(numbers: list[float], point: float) -> tuple[float, float]:
-    if not numbers:
-        return point, point
-    unique: list[float] = []
-    for n in numbers:
-        if not _same_scale(n, point):
-            continue
-        if not any(abs(n - u) < 1e-9 for u in unique):
-            unique.append(n)
-    if not unique:
-        return point, point
-    if len(unique) == 1:
-        return unique[0], unique[0]
-    below = [n for n in unique if n <= point]
-    above = [n for n in unique if n >= point]
-    lo = min(below) if below else min(unique)
-    hi = max(above) if above else max(unique)
-    if lo > hi:
-        lo, hi = hi, lo
-    return lo, hi
+def _interval_from_numbers(
+    numbers: list[float], point: float, *, text: str = ""
+) -> tuple[float, float]:
+    """Default to a degenerate [point, point]. Widen only for an explicit range.
+
+    The NLI hypothesis always includes ``The 90% prediction interval … is lo to hi``.
+    Two unrelated table cells as lo/hi cannot entail that clause; a written
+    ``ranged from 2.32 to 2.67`` can.
+    """
+    ranges = [
+        (lo, hi)
+        for lo, hi in explicit_ranges(text)
+        if _same_scale(lo, point) and _same_scale(hi, point)
+    ]
+    if ranges:
+        # Prefer a range that actually brackets the point (NOTES min/max).
+        bracketed = [r for r in ranges if r[0] <= point <= r[1]]
+        lo, hi = (bracketed or ranges)[0]
+        return lo, hi
+    return point, point
 
 
 def _hypothesis(
@@ -656,6 +824,137 @@ def _lexical_entail(premise: str, hypothesis: str) -> float:
     return overlap + bonus
 
 
+def _window_numbers(text: str) -> list[float]:
+    masked = _usable_numbers(extract_numbers(_mask_non_quantities(text)))
+    return masked if masked else _usable_numbers(extract_numbers(text))
+
+
+def _guided_points(
+    entity: dict[str, Any], numbers: list[float], text: str, tname: str
+) -> list[float]:
+    """Candidate points keyed off the published target name, never ``family``."""
+    points: list[float] = []
+    lower = text.lower()
+    tnl = tname.lower()
+
+    def _add(value: float | None) -> None:
+        if value is None or not number_in_text(text, value):
+            return
+        if any(abs(value - p) < 1e-9 for p in points):
+            return
+        points.append(value)
+
+    primary = _pick_point(entity, numbers, text)
+    if primary is not None and number_in_text(text, primary):
+        _add(primary)
+
+    if "bid to cover" in tnl:
+        covers = [n for n in numbers if 1.2 <= n <= 4.5]
+        recent = re.search(
+            r"(?:most recent[^\n]{0,80}?|drew a bid-to-cover of\s+|average[^\n]{0,40}?is\s+)"
+            r"([+-]?\d+(?:\.\d+)?)",
+            lower,
+        )
+        if recent:
+            parsed = _parse_float(recent.group(1))
+            if parsed is not None and number_in_text(text, parsed):
+                _add(parsed)
+        if covers:
+            _add(covers[-1])
+
+    if "first print" in tnl or "mom" in tnl:
+        fp = re.search(r"first print\s+([+-]?\d+(?:\.\d+)?)", lower)
+        if fp:
+            _add(_parse_float(fp.group(1)))
+
+    years = entity.get("maturity_years")
+    if isinstance(years, (int, float)):
+        for match in _YIELD_SENT.finditer(text):
+            if int(match.group(1)) == int(years):
+                _add(_parse_float(match.group(2)))
+
+    if "credit" in tnl:
+        unit = [n for n in numbers if 0.0 <= n <= 1.0]
+        if unit:
+            _add(unit[0])
+
+    if "position" in tnl or "pct oi" in tnl or "pct_oi" in tnl:
+        pct = re.search(r"\(([+-]?\d+(?:\.\d+)?)%\s+of", text)
+        if pct:
+            _add(_parse_float(pct.group(1)))
+
+    in_span = [p for p in points if number_in_text(text, p)]
+    return in_span or ([primary] if primary is not None and number_in_text(text, primary) else [])
+
+
+def _label_candidates(
+    *,
+    kind: str | None,
+    labels: list[str],
+    entity: dict[str, Any],
+    numbers: list[float],
+    text: str,
+) -> list[str]:
+    if kind != "classification" or not labels:
+        return [""]
+    numeric = _numeric_label_from_entity(entity, numbers, labels)
+    scored = [(lab, _label_score(lab, text)) for lab in labels]
+    scored.sort(key=lambda x: -x[1])
+    chosen: list[str] = []
+    if scored[0][1] > 0:
+        chosen.append(scored[0][0])
+    if numeric is not None and numeric not in chosen:
+        chosen.append(numeric)
+    if not chosen:
+        chosen.append(labels[0])
+    return chosen
+
+
+def tighten_window(window: Window, needles: Iterable[str]) -> Window:
+    """Shrink to the shortest line-ish slice that still contains ``needles``."""
+    text = window.text
+    lower = text.lower()
+    spans: list[tuple[int, int]] = []
+    for needle in needles:
+        if not needle:
+            continue
+        idx = text.find(needle)
+        if idx < 0:
+            idx = lower.find(needle.lower())
+        if idx >= 0:
+            spans.append((idx, idx + len(needle)))
+    if not spans:
+        return window
+    lo = min(s[0] for s in spans)
+    hi = max(s[1] for s in spans)
+    line_lo = text.rfind("\n", 0, lo) + 1
+    line_hi = text.find("\n", hi)
+    if line_hi < 0:
+        line_hi = len(text)
+    start = min(lo, line_lo) if (lo - line_lo) < 80 else lo
+    end = max(hi, line_hi) if (line_hi - hi) < 80 else hi
+    if end - start < _MIN_WINDOW:
+        pad = (_MIN_WINDOW - (end - start) + 1) // 2
+        start = max(0, start - pad)
+        end = min(len(text), end + pad)
+    # snap off mid-word
+    if start > 0 and not text[start].isspace() and text[start - 1].isalnum():
+        space = text.rfind(" ", max(0, start - 24), start + 1)
+        if space >= 0:
+            start = space + 1
+    snippet = text[start:end].strip()
+    if len(snippet) < _MIN_WINDOW:
+        return window
+    new_start = window.span_start + text.find(snippet)
+    return Window(
+        window.doc_id,
+        window.doc_date,
+        new_start,
+        new_start + len(snippet),
+        snippet,
+    )
+
+
 @dataclass
 class Grounded:
     label: str
@@ -665,6 +964,89 @@ class Grounded:
     window: Window
     score: float
     claims: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _score_candidate(
+    window: Window,
+    entity: dict[str, Any],
+    aliases: list[str],
+    hyp: str,
+    chosen_label: str,
+    point: float,
+    lo: float,
+    hi: float,
+    kind: str | None,
+) -> float:
+    score = _lexical_entail(window.text, hyp)
+    if _alias_hit(window.text, aliases):
+        score += 0.15
+    if _doc_owned_by_entity(window.doc_id, entity):
+        score += 0.35
+    name = entity.get("name")
+    if isinstance(name, str) and name and re.search(
+        rf"(?:^|\n|- ){re.escape(name)}\s*:", window.text
+    ):
+        score += 1.2
+    lower = window.text.lower()
+    if any(
+        k in lower
+        for k in (
+            "first print",
+            "notes (",
+            "revised up",
+            "revised down",
+            "bid-to-cover",
+            "yield was",
+            "diluted earnings",
+            "earnings per diluted",
+            "earnings per share",
+        )
+    ):
+        score += 1.0
+    cue_hit = bool(chosen_label) and _label_score(chosen_label, window.text) >= 2.0
+    if kind == "classification":
+        if cue_hit:
+            score += 1.6
+        else:
+            score -= 1.4
+    if all_numbers_in_text(window.text, (point, lo, hi)):
+        score += 0.6
+    if lo == hi == point:
+        score += 0.15
+    elif explicit_ranges(window.text):
+        score += 0.45
+    # An entity-row quantity that actually appears is the NOTES/table target.
+    for key in (
+        "latest_published_mom_pct",
+        "latest_precutoff_estimate",
+        "start_yield_pct",
+        "net_pct_oi_20241022",
+        "consensus_eps",
+        "prior_year_q_eps",
+    ):
+        raw = entity.get(key)
+        if isinstance(raw, (int, float)) and number_in_text(window.text, float(raw)):
+            score += 1.3
+            break
+    ref_month = entity.get("ref_month")
+    if isinstance(ref_month, str) and ref_month:
+        if ref_month in window.text:
+            score += 0.9
+        else:
+            score -= 0.6
+    series = entity.get("series_id") or entity.get("series_fred")
+    if isinstance(series, str) and series and re.search(
+        rf"(?<![A-Za-z0-9]){re.escape(series)}(?![A-Za-z0-9])", window.text
+    ):
+        score += 0.25
+    years = entity.get("maturity_years")
+    if isinstance(years, (int, float)) and re.search(
+        rf"(?<![0-9]){int(years)}-year", lower
+    ):
+        score += 0.5
+    # Prefer a tight premise: DeBERTa dilutes on a whole 10-Q.
+    score -= max(0.0, (len(window.text) - 200) / 1800.0)
+    return score
 
 
 def ground_entity(
@@ -687,83 +1069,93 @@ def ground_entity(
     aliases = _entity_aliases(entity)
 
     for window in windows:
-        numbers = _usable_numbers(extract_numbers(window.text))
-        point = _pick_point(entity, numbers, window.text)
-        lo, hi = _interval_from_numbers(numbers, point)
-
-        chosen_label = ""
-        if kind == "classification" and labels:
-            numeric = _numeric_label_from_entity(entity, numbers, labels)
-            scored = [(lab, _label_score(lab, window.text)) for lab in labels]
-            scored.sort(key=lambda x: -x[1])
-            if numeric is not None and _label_score(numeric, window.text) >= 0:
-                # Prefer a numeric rule when the window actually mentions a
-                # comparable quantity; otherwise take the best cue match.
-                cue_best, cue_score = scored[0]
-                if cue_score >= 2.0 and cue_best != numeric:
-                    chosen_label = cue_best
-                else:
-                    chosen_label = numeric
-            else:
-                chosen_label = scored[0][0] if scored[0][1] > 0 else labels[0]
-
-        hyp = _hypothesis(
+        numbers = _window_numbers(window.text)
+        points = _guided_points(entity, numbers, window.text, tname)
+        label_opts = _label_candidates(
             kind=kind,
-            tname=tname,
-            subject=subject,
-            label=chosen_label,
-            point=point,
-            lo=lo,
-            hi=hi,
-            level=level,
+            labels=labels,
+            entity=entity,
+            numbers=numbers,
+            text=window.text,
         )
-        score = _lexical_entail(window.text, hyp)
-        if _alias_hit(window.text, aliases):
-            score += 0.15
-        if _doc_owned_by_entity(window.doc_id, entity):
-            score += 0.8
-        name = entity.get("name")
-        if isinstance(name, str) and name and re.search(
-            rf"(?:^|\n|- ){re.escape(name)}\s*:", window.text
-        ):
-            score += 0.8
-        lower = window.text.lower()
-        if any(k in lower for k in ("first print", "notes (", "revised ", "bid-to-cover", "yield was")):
-            score += 0.35
-        if kind == "classification" and chosen_label and chosen_label.lower() in lower:
-            score += 0.25
-        if fmt_number(point) in window.text or (
-            numbers and any(abs(n - point) < 1e-9 for n in numbers)
-        ):
-            score += 0.2
-        # Prefer a tight premise: DeBERTa dilutes on a whole 10-Q.
-        score -= max(0.0, (len(window.text) - 280) / 2500.0)
-
-        candidate = Grounded(
-            label=chosen_label,
-            point=point,
-            lo=lo,
-            hi=hi,
-            window=window,
-            score=score,
-        )
-        if best is None or candidate.score > best.score:
-            best = candidate
+        for chosen_label in label_opts:
+            for point in points:
+                lo, hi = _interval_from_numbers(numbers, point, text=window.text)
+                if not all_numbers_in_text(window.text, (point, lo, hi)):
+                    lo, hi = point, point
+                    if not number_in_text(window.text, point):
+                        continue
+                hyp = _hypothesis(
+                    kind=kind,
+                    tname=tname,
+                    subject=subject,
+                    label=chosen_label,
+                    point=point,
+                    lo=lo,
+                    hi=hi,
+                    level=level,
+                )
+                score = _score_candidate(
+                    window,
+                    entity,
+                    aliases,
+                    hyp,
+                    chosen_label,
+                    point,
+                    lo,
+                    hi,
+                    kind,
+                )
+                candidate = Grounded(
+                    label=chosen_label,
+                    point=point,
+                    lo=lo,
+                    hi=hi,
+                    window=window,
+                    score=score,
+                )
+                if best is None or candidate.score > best.score:
+                    best = candidate
 
     if best is None:
-        # Last-resort: newest eligible document, first 240 characters.
+        # Last-resort: newest eligible document, a number that is actually in it.
         fallback = _newest_eligible_window(corpus, cutoff)
+        nums = _window_numbers(fallback.text)
+        point = next((n for n in nums if number_in_text(fallback.text, n)), 0.0)
+        if not number_in_text(fallback.text, point):
+            # Cite a slightly longer prefix that is still in the document.
+            doc = corpus.doc_texts.get(fallback.doc_id, fallback.text)
+            prefix = doc[: min(240, len(doc))] or " "
+            fallback = Window(fallback.doc_id, fallback.doc_date, 0, len(prefix), prefix)
+            nums = _window_numbers(fallback.text)
+            point = next((n for n in nums if number_in_text(fallback.text, n)), 0.0)
         labels_or = labels
         best = Grounded(
             label=labels_or[0] if labels_or else "",
-            point=0.0,
-            lo=0.0,
-            hi=0.0,
+            point=point,
+            lo=point,
+            hi=point,
             window=fallback,
             score=0.0,
         )
+    else:
+        needles = [fmt_number(best.point), fmt_number(best.lo), fmt_number(best.hi)]
+        if best.label:
+            for cue in _LABEL_CUES.get(best.label, ()):
+                if cue in best.window.text.lower():
+                    needles.append(cue)
+                    break
+        tightened = tighten_window(best.window, needles)
+        if all_numbers_in_text(tightened.text, (best.point, best.lo, best.hi)):
+            best.window = tightened
 
     window = _resolve_window(best.window, corpus)
+    if not all_numbers_in_text(window.text, (best.point, best.lo, best.hi)):
+        recovered = _span_covering_numbers(
+            corpus, window.doc_id, (best.point, best.lo, best.hi), hint=window
+        )
+        if recovered is not None:
+            window = recovered
     claim_text = (
         f"{subject}: extracted from {window.doc_id} "
         f"[{window.span_start}:{window.span_end}]."
@@ -791,8 +1183,20 @@ def _resolve_window(window: Window, corpus: IndexedCorpus) -> Window:
     start, end = window.span_start, window.span_end
     if 0 <= start < end <= len(doc) and doc[start:end] == window.text:
         return window
-    found = doc.find(window.text)
-    if found >= 0:
+    # Prefer the occurrence closest to the claimed offsets so a short NOTES
+    # line is not remapped onto the document title.
+    closest: tuple[int, int] | None = None
+    pos = 0
+    while True:
+        found = doc.find(window.text, pos)
+        if found < 0:
+            break
+        dist = abs(found - start)
+        if closest is None or dist < closest[0]:
+            closest = (dist, found)
+        pos = found + 1
+    if closest is not None:
+        found = closest[1]
         return Window(
             window.doc_id,
             window.doc_date,
@@ -800,9 +1204,78 @@ def _resolve_window(window: Window, corpus: IndexedCorpus) -> Window:
             found + len(window.text),
             window.text,
         )
-    # Last resort: cite a prefix of the document that we know exists.
+    # Last resort: locate the longest line of the window that still exists.
+    for line in sorted(window.text.splitlines(), key=len, reverse=True):
+        snippet = line.strip()
+        if len(snippet) < _MIN_WINDOW:
+            continue
+        found = doc.find(snippet)
+        if found >= 0:
+            return Window(
+                window.doc_id,
+                window.doc_date,
+                found,
+                found + len(snippet),
+                snippet,
+            )
     end = min(max(len(window.text), _MIN_WINDOW), len(doc))
     return Window(window.doc_id, window.doc_date, 0, end, doc[:end])
+
+
+def _span_covering_numbers(
+    corpus: IndexedCorpus,
+    doc_id: str,
+    values: Iterable[float],
+    *,
+    hint: Window | None = None,
+) -> Window | None:
+    """Find an exact document slice that still contains every formatted number."""
+    doc = corpus.doc_texts.get(doc_id, "")
+    if not doc:
+        return None
+    spans: list[tuple[int, int]] = []
+    for value in values:
+        token = fmt_number(value)
+        idx = doc.find(token)
+        if idx < 0 and not token.startswith("-"):
+            idx = doc.find(f"+{token}")
+            if idx >= 0:
+                token = f"+{token}"
+        if idx < 0:
+            return None
+        # Prefer the occurrence closest to the hint, if any.
+        if hint is not None:
+            pos = 0
+            closest = idx
+            best_dist = abs(idx - hint.span_start)
+            while True:
+                found = doc.find(token, pos)
+                if found < 0:
+                    break
+                dist = abs(found - hint.span_start)
+                if dist < best_dist:
+                    best_dist = dist
+                    closest = found
+                pos = found + 1
+            idx = closest
+        spans.append((idx, idx + len(token)))
+    start = min(s[0] for s in spans)
+    end = max(s[1] for s in spans)
+    line_lo = doc.rfind("\n", 0, start) + 1
+    line_hi = doc.find("\n", end)
+    if line_hi < 0:
+        line_hi = len(doc)
+    if start - line_lo < 120:
+        start = line_lo
+    if line_hi - end < 120:
+        end = line_hi
+    if end - start < _MIN_WINDOW:
+        end = min(len(doc), start + _MIN_WINDOW)
+    snippet = doc[start:end]
+    if not all_numbers_in_text(snippet, values):
+        return None
+    date = corpus.doc_dates.get(doc_id)
+    return Window(doc_id, date, start, end, snippet)
 
 
 def _newest_eligible_window(corpus: IndexedCorpus, cutoff: str) -> Window:
