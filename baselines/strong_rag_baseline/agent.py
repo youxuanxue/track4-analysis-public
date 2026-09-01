@@ -17,13 +17,14 @@ from .indexer import Chunk, IndexedCorpus
 from .prompts import SYSTEM_PROMPT, build_user_prompt
 from .reasoner import ground_entity, prediction_from_grounded
 from .retriever import BM25Index
-from .schema import interval_level, legal_labels, target_type
+from .schema import interval_level, legal_labels, target_name, target_type
 from .span_finder import find_span
 
 _JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 
 #: Query terms appended to every entity query — steer retrieval toward result
-#: and outlook language regardless of family.
+#: and outlook language. Target-name / label tokens from the task are appended
+#: per entity so an unpublished family still retrieves its own vocabulary.
 _QUERY_SUFFIX = "results revenue earnings guidance outlook growth"
 
 
@@ -42,11 +43,16 @@ def _parse_model_json(raw: str) -> dict:
     return json.loads(match.group(0))
 
 
-def _entity_query(entity: dict) -> str:
+def _entity_query(entity: dict, task: dict | None = None) -> str:
     parts = [
         str(entity.get(key, ""))
         for key in ("name", "entity_id", "sector", "series_id", "description")
     ]
+    if task:
+        tname = target_name(task)
+        if tname and tname != "outcome":
+            parts.append(tname)
+        parts.extend(legal_labels(task))
     return " ".join(p for p in parts if p) + " " + _QUERY_SUFFIX
 
 
@@ -146,7 +152,7 @@ def run_entity(
     client: ModelClient,
     top_k: int,
 ) -> EntityResult:
-    retrieved = [s.chunk for s in index.search(_entity_query(entity), top_k)]
+    retrieved = [s.chunk for s in index.search(_entity_query(entity, task), top_k)]
     raw = client.complete(SYSTEM_PROMPT, build_user_prompt(task, entity, retrieved))
     parsed = _parse_model_json(raw)
 

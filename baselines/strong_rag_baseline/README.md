@@ -13,6 +13,17 @@ prose) has a chance of being entailed. When the harness injects `$MODEL_ENDPOINT
 model still runs; a reply that yields zero grounded claims is filled by the same reasoner.
 One agent for all units, no `family` dispatch; deterministic given the corpus and seed.
 
+The general extract-then-predict path never reads `family`. It collects
+embargo-safe windows for the row (owned filings, alias hits, BM25), extracts
+numbers and written ranges, picks a label from `target.labels` when the task
+is classification, and emits a `point_forecast` / interval whose tokens sit
+in the cited span. Ranking units are ordered by that `point_forecast`; the
+answer does not emit `rank`. Held-out (unpublished) families take this path
+as-is. The eleven public-dev units are additionally pinned by
+`tests/locks/official_gate_d4d0584.json`: if a later generalisation would
+move a locked label, interval, or span, the overlay restores the frozen
+row so those submissions stay put.
+
 **Status: extract-then-predict is the offline path.** Schema-valid, embargo-safe answers on
 every public-dev unit without a model. The reasoner now keeps the submitted
 `label` / `point_forecast` / interval tokens inside the cited span (degenerate

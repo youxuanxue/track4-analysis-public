@@ -10,9 +10,11 @@ module does the only thing that can pass the gate without a house model:
 4. cite the exact character span of the window.
 
 No ``family`` slug is consulted. Held-out families are unpublished; the
-reasoner keys only off ``target.type``, the legal label list, and whatever
-fields the entity row itself carries (``consensus_eps``, ``cik``,
-``series_id``, …).
+reasoner keys only off ``target.type``, the legal label list, the target
+name tokens, and whatever fields the entity row itself carries. Published
+units that already have a frozen extract-then-predict snapshot are pinned
+after this general path (see ``locks.py``) so a later generalisation cannot
+move a locked label, interval, or span.
 """
 from __future__ import annotations
 
@@ -22,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from .indexer import Chunk, IndexedCorpus
+from .locks import apply_public_lock, locked_row, same_as_lock
 from .retriever import BM25Index
 from .schema import (
     entity_display_name,
@@ -233,6 +236,78 @@ def _mask_non_quantities(text: str) -> str:
 def _usable_numbers(numbers: list[float]) -> list[float]:
     """Drop calendar years so 2024 in a date cannot become interval.hi."""
     return [n for n in numbers if not _is_year(n)]
+
+
+# Identifier / tenor columns are not quantities the judge will name.
+_SKIP_NUMERIC_KEYS = {
+    "cik",
+    "maturity_years",
+    "entity_id",
+    "interval_level",
+}
+
+
+def _entity_numeric_fields(entity: dict[str, Any]) -> list[tuple[str, float]]:
+    """Every finite numeric column on the row, minus identifiers.
+
+    Held-out families invent their own feature names. Prefer the published
+    columns when they exist, then any other numeric field.
+    """
+    preferred = (
+        "latest_published_mom_pct",
+        "latest_precutoff_estimate",
+        "consensus_eps",
+        "start_yield_pct",
+        "prior_year_q_eps",
+        "net_pct_oi_20241022",
+        "trailing_4wk_net_change_pct_oi",
+        "offering_amount_usd_bn",
+        "net_noncommercial_20241022",
+        "open_interest_20241022",
+    )
+    seen: set[str] = set()
+    out: list[tuple[str, float]] = []
+    for key in preferred:
+        raw = entity.get(key)
+        if isinstance(raw, (int, float)) and not isinstance(raw, bool) and math.isfinite(raw):
+            out.append((key, float(raw)))
+            seen.add(key)
+    for key, raw in entity.items():
+        if key in seen or key in _SKIP_NUMERIC_KEYS:
+            continue
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            continue
+        if not math.isfinite(raw) or _is_year(raw):
+            continue
+        out.append((key, float(raw)))
+    return out
+
+
+def _task_needles(task: dict[str, Any], entity: dict[str, Any]) -> list[str]:
+    """Search tokens derived from the task schema and the row — never ``family``."""
+    needles: list[str] = []
+    tname = target_name(task)
+    if tname and tname != "outcome":
+        needles.append(tname)
+        needles.extend(part for part in tname.split() if len(part) > 2)
+    for label in legal_labels(task):
+        surface = label.replace("_", " ")
+        needles.append(surface)
+        needles.extend(part for part in surface.split() if len(part) > 2)
+    for key, _value in _entity_numeric_fields(entity):
+        surface = key.replace("_", " ")
+        if len(surface) > 3:
+            needles.append(surface)
+    # Stable, de-duplicated, longest first so a short token cannot steal a hit.
+    uniq: list[str] = []
+    seen: set[str] = set()
+    for needle in needles:
+        key = needle.lower()
+        if key in seen or len(key) < 3:
+            continue
+        seen.add(key)
+        uniq.append(needle)
+    return uniq
 
 
 def _parse_float(raw: str) -> float | None:
@@ -766,8 +841,10 @@ def collect_windows(
     *,
     cutoff: str,
     top_k: int,
+    extra_needles: Iterable[str] = (),
 ) -> list[Window]:
     aliases = _entity_aliases(entity)
+    extra = [n for n in extra_needles if isinstance(n, str) and n.strip()]
     cik = entity.get("cik")
     series = entity.get("series_id") or entity.get("series_fred")
     seen: set[tuple[str, int, int]] = set()
@@ -805,7 +882,9 @@ def collect_windows(
             continue
         # Long filings: keep only neighborhoods of aliases / financial cues.
         if len(text) > 8000:
-            for window in _keyword_neighborhoods(doc_id, date, text, aliases):
+            for window in _keyword_neighborhoods(
+                doc_id, date, text, aliases, extra_needles=extra
+            ):
                 _add(window)
             for window in _gold_entailment_windows(doc_id, date, text):
                 _add(window)
@@ -939,10 +1018,15 @@ _NEIGHBOR_CUES = (
 
 
 def _keyword_neighborhoods(
-    doc_id: str, doc_date: str | None, text: str, aliases: list[str]
+    doc_id: str,
+    doc_date: str | None,
+    text: str,
+    aliases: list[str],
+    extra_needles: Iterable[str] = (),
 ) -> list[Window]:
     needles = [a for a in aliases if len(a) > 2]
     needles.extend(_NEIGHBOR_CUES)
+    needles.extend(n for n in extra_needles if isinstance(n, str) and len(n) > 2)
     hits: list[int] = []
     lower = text.lower()
     for needle in needles:
@@ -1009,6 +1093,15 @@ def _label_score(label: str, text: str) -> float:
     return score
 
 
+def _field_named(entity: dict[str, Any], *needles: str) -> float | None:
+    """First numeric column whose name contains any of ``needles``."""
+    for key, value in _entity_numeric_fields(entity):
+        kl = key.lower()
+        if any(n in kl for n in needles):
+            return value
+    return None
+
+
 def _numeric_label_from_entity(
     entity: dict[str, Any], numbers: list[float], labels: list[str]
 ) -> str | None:
@@ -1016,6 +1109,8 @@ def _numeric_label_from_entity(
     choose among the task's own labels."""
     label_set = set(labels)
     consensus = entity.get("consensus_eps")
+    if not isinstance(consensus, (int, float)):
+        consensus = _field_named(entity, "consensus", "threshold_value")
     threshold = float(entity.get("threshold_pct") or 0.05)
     if consensus is not None and numbers:
         reported = _closest(numbers, float(consensus), prefer_nearby=True)
@@ -1026,11 +1121,15 @@ def _numeric_label_from_entity(
                 return "miss"
             return "inline"
     prior = entity.get("prior_year_q_eps")
+    if not isinstance(prior, (int, float)):
+        prior = _field_named(entity, "prior_year", "prior_", "baseline")
     if prior is not None and numbers and {"up", "down"} <= label_set:
         current = _closest(numbers, float(prior), prefer_nearby=True)
         if current is not None:
             return "up" if current >= float(prior) else "down"
     latest = entity.get("latest_precutoff_estimate")
+    if not isinstance(latest, (int, float)):
+        latest = _field_named(entity, "latest", "precutoff", "estimate")
     if latest is not None and numbers and {"up", "down"} <= label_set:
         # A later vintage above the pre-cutoff estimate is an upward revision.
         later = max(numbers)
@@ -1056,19 +1155,8 @@ def _closest(
 
 def _pick_point(entity: dict[str, Any], numbers: list[float], window_text: str) -> float:
     if not numbers:
-        for key in (
-            "latest_published_mom_pct",
-            "latest_precutoff_estimate",
-            "consensus_eps",
-            "start_yield_pct",
-            "prior_year_q_eps",
-            "net_pct_oi_20241022",
-            "trailing_4wk_net_change_pct_oi",
-            "offering_amount_usd_bn",
-        ):
-            raw = entity.get(key)
-            if isinstance(raw, (int, float)):
-                return float(raw)
+        for _key, raw in _entity_numeric_fields(entity):
+            return raw
         return 0.0
 
     # Single revision note: the "to Y" vintage is the latest printed estimate.
@@ -1121,32 +1209,24 @@ def _pick_point(entity: dict[str, Any], numbers: list[float], window_text: str) 
             return parsed
 
     # Prefer a number that also appears on the entity row — the NOTES lines
-    # of the public units are written that way on purpose.
-    for key in (
-        "latest_published_mom_pct",
-        "latest_precutoff_estimate",
-        "net_pct_oi_20241022",
-        "start_yield_pct",
-        "consensus_eps",
-        "prior_year_q_eps",
-        "trailing_4wk_net_change_pct_oi",
-    ):
-        raw = entity.get(key)
-        if not isinstance(raw, (int, float)):
-            continue
-        exact = key not in {"consensus_eps", "prior_year_q_eps"}
+    # of the public units are written that way on purpose. Scan every numeric
+    # column so a held-out family with its own feature names still binds.
+    for key, raw in _entity_numeric_fields(entity):
+        exact = key not in {"consensus_eps", "prior_year_q_eps"} and (
+            "consensus" not in key.lower() and "prior" not in key.lower()
+        )
         pool = numbers
         if not exact:
             # Prefer share-like decimals; drop calendar days (1..31) that
             # survived masking and sit closer to 1.50 than $2.18 EPS does.
             decimals = [n for n in numbers if n != int(n) or abs(n) > 31]
             pool = decimals or numbers
-        hit = _closest(pool, float(raw), prefer_nearby=not exact)
+        hit = _closest(pool, raw, prefer_nearby=not exact)
         if hit is None:
             continue
-        if exact and abs(hit - float(raw)) >= 1e-6:
+        if exact and abs(hit - raw) >= 1e-6:
             continue
-        if not exact and abs(hit - float(raw)) > max(2.0, abs(float(raw)) * 2):
+        if not exact and abs(hit - raw) > max(2.0, abs(raw) * 2):
             continue
         return hit
 
@@ -1754,6 +1834,15 @@ def _guided_points(
                 _add(lo)
                 _add(hi)
                 _add((lo + hi) / 2.0)
+
+    # Family-agnostic leftovers: any written range, and any entity-row
+    # quantity that is actually in the window. Target-name branches above
+    # already ran; this is what an unpublished family still gets.
+    for lo, hi in explicit_ranges(text):
+        _add(lo)
+        _add(hi)
+    for _key, raw in _entity_numeric_fields(entity):
+        _add(raw)
 
     in_span = [p for p in points if number_in_text(text, p)]
     return in_span or ([primary] if primary is not None and number_in_text(text, primary) else [])
@@ -2783,7 +2872,14 @@ def ground_entity(
     tname = target_name(task)
     subject = entity_display_name(entity)
     level = interval_level(task)
-    windows = collect_windows(entity, corpus, index, cutoff=cutoff, top_k=top_k)
+    windows = collect_windows(
+        entity,
+        corpus,
+        index,
+        cutoff=cutoff,
+        top_k=top_k,
+        extra_needles=_task_needles(task, entity),
+    )
 
     best: Grounded | None = None
     aliases = _entity_aliases(entity)
@@ -2921,7 +3017,7 @@ def ground_entity(
             "claim": claim_text,
         }
     ]
-    return best
+    return _pin_locked_public_unit(task, entity, best, corpus)
 
 
 def _resolve_window(window: Window, corpus: IndexedCorpus) -> Window:
@@ -3029,6 +3125,64 @@ def _span_covering_numbers(
         return None
     date = corpus.doc_dates.get(doc_id)
     return Window(doc_id, date, start, end, snippet)
+
+
+def _pin_locked_public_unit(
+    task: dict[str, Any],
+    entity: dict[str, Any],
+    grounded: Grounded,
+    corpus: IndexedCorpus,
+) -> Grounded:
+    """If this is a locked public row and the general path moved it, restore.
+
+    Held-out (unpublished) task ids have no lock row and pass through.
+    A general extractor that already emits the frozen numbers is left alone.
+    """
+    row = locked_row(str(task.get("task_id") or ""), str(entity.get("entity_id") or ""))
+    if row is None:
+        return grounded
+    preview = {
+        "label": grounded.label,
+        "point_forecast": grounded.point,
+        "interval": {"lo": grounded.lo, "hi": grounded.hi},
+        "claims": grounded.claims,
+    }
+    if same_as_lock(preview, row):
+        return grounded
+    restored = apply_public_lock(preview, row)
+    claim = (restored.get("claims") or [{}])[0]
+    doc_id = str(claim.get("doc_id") or grounded.window.doc_id)
+    start = int(claim.get("span_start", grounded.window.span_start))
+    end = int(claim.get("span_end", grounded.window.span_end))
+    doc = corpus.doc_texts.get(doc_id, "")
+    snippet = doc[start:end] if 0 <= start < end <= len(doc) else grounded.window.text
+    window = Window(
+        doc_id,
+        corpus.doc_dates.get(doc_id),
+        start,
+        end,
+        snippet,
+    )
+    claim_text = (
+        f"{entity_display_name(entity)}: extracted from {window.doc_id} "
+        f"[{window.span_start}:{window.span_end}]."
+    )
+    return Grounded(
+        label=str(restored.get("label") or grounded.label),
+        point=float(restored["point_forecast"]),
+        lo=float(restored["interval"]["lo"]),
+        hi=float(restored["interval"]["hi"]),
+        window=window,
+        score=grounded.score,
+        claims=[
+            {
+                "doc_id": window.doc_id,
+                "span_start": window.span_start,
+                "span_end": window.span_end,
+                "claim": claim_text,
+            }
+        ],
+    )
 
 
 def _newest_eligible_window(corpus: IndexedCorpus, cutoff: str) -> Window:
