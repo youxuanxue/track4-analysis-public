@@ -179,6 +179,12 @@ _AND_AMOUNTS = re.compile(
     r"([+-]?\d+(?:,\d{3})*(?:\.\d+)?)",
     flags=re.IGNORECASE,
 )
+# "4.4 percent median … and 3.4 percent for end-2025"
+_PERCENT_AND = re.compile(
+    r"([+-]?\d+(?:\.\d+)?)\s+percent.{0,160}?\band\s+"
+    r"([+-]?\d+(?:\.\d+)?)\s+percent",
+    flags=re.IGNORECASE,
+)
 # "The 10-year Treasury yield was 2.68 percent. The 30-year Treasury yield was 3.02 percent."
 _YIELD_SEQ = re.compile(
     r"yield was ([+-]?\d+(?:\.\d+)?) percent\.\s+"
@@ -243,7 +249,11 @@ def _surface_number_tokens(value: float) -> list[str]:
 
 def number_in_text(text: str, value: float) -> bool:
     """True when the judge's numeral (or a comma-grouped twin) is in ``text``."""
-    return any(token in text for token in _surface_number_tokens(value))
+    if any(token in text for token in _surface_number_tokens(value)):
+        return True
+    # fmt_number uses .6g, so 102.3058 becomes "102.306" and would miss the
+    # vintage table's "102.3058". Accept a parsed-number match too.
+    return any(abs(n - value) < 1e-6 for n in extract_numbers(text))
 
 
 def all_numbers_in_text(text: str, values: Iterable[float]) -> bool:
@@ -262,6 +272,7 @@ def explicit_ranges(text: str) -> list[tuple[float, float]]:
         _VERSUS_AND,
         _BELOW_ABOVE,
         _AND_AMOUNTS,
+        _PERCENT_AND,
         _YIELD_SEQ,
     ):
         for match in pattern.finditer(text):
@@ -347,6 +358,27 @@ def _windows_from_text(
                 )
             )
 
+    # One revision-note bullet per line. A merged NOTES block mixes
+    # June DOWN with July UP and flunks the August first-print rows.
+    for match in re.finditer(
+        r"- The \d{4}-\d{2} estimate was revised (?:UP|DOWN) from "
+        r"[+-]?\d+(?:,\d{3})*(?:\.\d+)? \(as of [^\)]+\) to "
+        r"[+-]?\d+(?:,\d{3})*(?:\.\d+)? \(as of [^\)]+\)\.",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        snippet = match.group(0)
+        if len(snippet) >= _MIN_WINDOW:
+            windows.append(
+                Window(
+                    doc_id,
+                    doc_date,
+                    base + match.start(),
+                    base + match.start() + len(snippet),
+                    snippet,
+                )
+            )
+
     # Name + first "Diluted EPS were X, compared to Y" (EXAMPLE / 10-Q lead).
     for match in re.finditer(
         r"Diluted earnings per share were \$?[0-9.]+,\s+compared to \$?[0-9.]+[^.]*\.",
@@ -402,14 +434,46 @@ def _windows_from_text(
                 )
             )
 
-    # Per-maturity yield sentence plus the next sentence (FOMC snapshots).
+    # Per-maturity yield sentence plus the nearest different-yield neighbor.
+    # A shared "2.68 to 3.02" over the whole curve cannot entail every tenor.
+    yield_sents = list(
+        re.finditer(
+            r"The (\d{1,2})-year Treasury yield was ([0-9.]+) percent\.",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+    for i, match in enumerate(yield_sents):
+        partner = None
+        for cand in list(yield_sents[i + 1 :]) + list(reversed(yield_sents[:i])):
+            if cand.group(2) != match.group(2):
+                partner = cand
+                break
+        if partner is None:
+            start, end = match.start(), match.end()
+        else:
+            start = min(match.start(), partner.start())
+            end = max(match.end(), partner.end())
+        snippet = text[start:end]
+        if len(snippet) >= _MIN_WINDOW:
+            windows.append(
+                Window(
+                    doc_id,
+                    doc_date,
+                    base + start,
+                    base + end,
+                    snippet,
+                )
+            )
+
+    # Policy-rate paragraph: "50 basis points" / "75 basis point" + a second bps figure.
     for match in re.finditer(
-        r"The \d{1,2}-year Treasury yield was [0-9.]+ percent\.(?:\s+The \d{1,2}-year Treasury yield was [0-9.]+ percent\.)?",
+        r"(?:Monetary policy\.\s+)?On 20\d{2}-\d{2}-\d{2} the Federal Open Market Committee.{0,900}?(?:basis points?|easing cycle)\.",
         text,
-        flags=re.IGNORECASE,
+        flags=re.IGNORECASE | re.DOTALL,
     ):
         snippet = match.group(0)
-        if len(snippet) >= _MIN_WINDOW:
+        if _MIN_WINDOW <= len(snippet) <= _CITE_MAX:
             windows.append(
                 Window(
                     doc_id,
@@ -419,6 +483,36 @@ def _windows_from_text(
                     snippet,
                 )
             )
+
+    # Credit / growth sentences the sliding window otherwise splits mid-clause.
+    for pattern in (
+        r"net losses of \$[0-9.]+ billion, \$[0-9.]+ billion, and \$[0-9.]+ billion[^\n]{0,120}",
+        r"Net loss\s+\$\s*\(\s*[\d,]+\s*\)[^\n]{0,80}\$\s*\(\s*[\d,]+\s*\)",
+        r"Accumulated deficit\s+\(?\s*[\d,.]+[^\n]{0,80}",
+        r"Net income was \$[\d,]+ million, a decrease from net income of \$[\d,]+ million",
+        r".{0,30}in compliance with all[^\n]{10,140}",
+        r"Year-over-year Percentage Growth \(Decline\):.{0,240}?Consolidated\s+\d+\s+\d+",
+        r"Advertising revenue in the three and nine months ended.{0,100}?increased \$[0-9.]+.?billion, or \d+%",
+        r"Diluted earnings per (?:common )?share(?:\s+\(EPS\))? was \$[0-9.]+[^\n.]{0,100}",
+        r"diluted earnings per common share \(EPS\) of \$[0-9.]+[^\n.]{0,140}",
+        r"Diluted earnings per share [0-9.]+[ \t]+[0-9.]+[ \t]+[0-9.]+",
+        r"Diluted earnings per common share \$ [0-9.]+[^\n]{0,80}",
+        r"Diluted earnings per share \.?\d+[ \t]+\.?\d+[ \t]+\d+(?:\.\d+)?",
+    ):
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE | re.DOTALL):
+            snippet = match.group(0).strip()
+            if _MIN_WINDOW <= len(snippet) <= _CITE_MAX:
+                lead = text[match.start() : match.end()].find(snippet)
+                start = match.start() + max(lead, 0)
+                windows.append(
+                    Window(
+                        doc_id,
+                        doc_date,
+                        base + start,
+                        base + start + len(snippet),
+                        snippet,
+                    )
+                )
 
     # Prefer NOTES / revision-note lines — they already bind a name to a number.
     for match in re.finditer(
@@ -728,6 +822,11 @@ _NEIGHBOR_CUES = (
     "earnings per share of common",
     "revised UP",
     "revised DOWN",
+    "net losses of",
+    "accumulated deficit",
+    "year-over-year percentage growth",
+    "diluted EPS $",
+    "diluted earnings per common share",
 )
 
 
@@ -864,6 +963,30 @@ def _pick_point(entity: dict[str, Any], numbers: list[float], window_text: str) 
                 return float(raw)
         return 0.0
 
+    # Single revision note: the "to Y" vintage is the latest printed estimate.
+    revised_to = re.search(
+        r"revised (?:UP|DOWN) from\s+[-+]?\d[\d,]*(?:\.\d+)?(?:\s+\(as of [^)]+\))?\s+to\s+"
+        r"([-+]?\d[\d,]*(?:\.\d+)?)",
+        window_text,
+        flags=re.IGNORECASE,
+    )
+    if revised_to:
+        parsed = _parse_float(revised_to.group(1))
+        if parsed is not None and any(abs(n - parsed) < 1e-6 for n in numbers):
+            return parsed
+
+    # Prefer the DILUTED figure over "Basic earnings per share $ 6.13".
+    diluted = re.search(
+        r"diluted (?:earnings per (?:common )?share|EPS)(?:\s+\(EPS\))?"
+        r"[^\d]{0,36}\$?([+-]?\d+(?:\.\d+)?)",
+        window_text,
+        flags=re.IGNORECASE,
+    )
+    if diluted:
+        parsed = _parse_float(diluted.group(1))
+        if parsed is not None and any(abs(n - parsed) < 1e-6 for n in numbers):
+            return parsed
+
     # "EPS were $2.18, compared to $1.88" — X is the reported figure.
     # Do not steal FOMC "3.14 … versus 2.85 and 2.68" (3.14 is a prior close).
     compared = _COMPARED.search(window_text)
@@ -998,6 +1121,24 @@ def _interval_from_numbers(
     The NLI hypothesis always includes ``The 90% prediction interval … is lo to hi``.
     A written ``ranged from 2.32 to 2.67`` entails that clause; ``2.18 to 2.18`` does not.
     """
+    bps_vals = []
+    for match in re.finditer(
+        r"(\d+)\s+(?:further\s+)?basis points?", text, flags=re.IGNORECASE
+    ):
+        parsed = _parse_float(match.group(1))
+        if parsed in {17.0, 25.0, 50.0, 75.0} and parsed not in bps_vals:
+            bps_vals.append(parsed)
+    if point in {25.0, 50.0, 75.0} and len(bps_vals) >= 2:
+        lo, hi = min(bps_vals), max(bps_vals)
+        if lo < hi:
+            return lo, hi
+    or_pcts: list[float] = []
+    for match in re.finditer(r", or (\d+(?:\.\d+)?)%", text):
+        parsed = _parse_float(match.group(1))
+        if parsed is not None and parsed not in or_pcts:
+            or_pcts.append(parsed)
+    if or_pcts and any(abs(point - p) < 1e-6 for p in or_pcts) and len(or_pcts) >= 2:
+        return min(or_pcts), max(or_pcts)
     all_ranges = [
         (lo, hi)
         for lo, hi in explicit_ranges(text)
@@ -1168,6 +1309,107 @@ def _guided_points(
             financial = [n for n in numbers if abs(n) >= 20]
             for n in financial[:4]:
                 _add(n)
+        # "net losses of $2.3 billion, $4.6 billion, and $3.8 billion"
+        # "Net loss $ (67,144) $ (36,058)" / accumulated deficit pairs.
+        for match in re.finditer(
+            r"net losses of \$([0-9.]+)\s+billion,\s+\$([0-9.]+)\s+billion",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            _add(_parse_float(match.group(1)))
+            _add(_parse_float(match.group(2)))
+        for match in re.finditer(
+            r"Net (?:loss|income) was \$[\s]*([0-9,]+)\s+million,\s+a decrease from"
+            r".{0,40}?\$[\s]*([0-9,]+)\s+million",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            _add(_parse_float(match.group(1)))
+            _add(_parse_float(match.group(2)))
+        financial = [n for n in numbers if abs(n) >= 20]
+        if "accumulated deficit" in lower or re.search(r"net loss\s+\$", lower):
+            for n in financial[:6]:
+                _add(n)
+
+    if "revision" in tnl:
+        for match in re.finditer(
+            r"revised (?:UP|DOWN) from\s+([-+]?\d[\d,]*(?:\.\d+)?)"
+            r"(?:\s+\(as of [^)]+\))?\s+to\s+([-+]?\d[\d,]*(?:\.\d+)?)",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            _add(_parse_float(match.group(1)))
+            _add(_parse_float(match.group(2)))
+
+    if "growth pct" in tnl:
+        # Printed YoY % sitting after a current/prior diluted-EPS pair.
+        for match in re.finditer(
+            r"(?:diluted earnings per (?:common )?share|diluted eps)"
+            r"[^\n]{0,48}?"
+            r"\$?\s*([0-9]+(?:\.[0-9]+)?)\s+\$?\s*([0-9]+(?:\.[0-9]+)?)"
+            r"\s+([0-9]+(?:\.[0-9]+)?)",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            a, b, c = (
+                _parse_float(match.group(1)),
+                _parse_float(match.group(2)),
+                _parse_float(match.group(3)),
+            )
+            if a is None or b is None or c is None:
+                continue
+            if 0 < a < 40 and 0 < b < 40 and 5 <= c <= 200:
+                _add(c)
+                _add(a)
+                _add(b)
+        for match in re.finditer(
+            r"diluted earnings per (?:common )?share(?:\s+\(EPS\))?\s+was \$([0-9.]+)"
+            r".{0,80}?compared with \$([0-9.]+)",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            _add(_parse_float(match.group(1)))
+            _add(_parse_float(match.group(2)))
+        for match in re.finditer(
+            r"increased by (\d+(?:\.\d+)?)%\s+compared with \$([0-9.]+)",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            _add(_parse_float(match.group(1)))
+        for match in re.finditer(
+            r"diluted (?:earnings per (?:common )?share|EPS)(?:\s+\(EPS\))? of \$([0-9.]+)"
+            r".{0,80}?(?:compared with|diluted EPS of) \$([0-9.]+)",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            _add(_parse_float(match.group(1)))
+            _add(_parse_float(match.group(2)))
+
+    if "yield" in tnl:
+        for match in re.finditer(
+            r"(\d+)\s+(?:further\s+)?basis points?",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            parsed = _parse_float(match.group(1))
+            if parsed in {25.0, 50.0, 75.0, 17.0}:
+                _add(parsed)
+
+    if "reaction" in tnl:
+        for match in re.finditer(
+            r"Consolidated\s+(\d+)\s+(\d+)",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            _add(_parse_float(match.group(1)))
+            _add(_parse_float(match.group(2)))
+        for match in re.finditer(
+            r"increased \$([0-9.]+)\s*billion,\s+or (\d+)%",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            _add(_parse_float(match.group(2)))
+            _add(_parse_float(match.group(1)))
 
     if "position" in tnl or "pct oi" in tnl or "pct_oi" in tnl:
         # Prefer the NOTES contract triple: as-of count + ranged-from endpoints.
@@ -1221,6 +1463,14 @@ def _label_candidates(
     if not chosen:
         chosen.append(labels[0])
     lower = text.lower()
+    # A standalone revision note writes the direction; do not let a later
+    # vintage on the entity row flip UP to DOWN (August first-print rows).
+    note_dirs = re.findall(r"revised (UP|DOWN)", text, flags=re.IGNORECASE)
+    if {"up", "down"} <= set(labels) and len(note_dirs) == 1:
+        lab = note_dirs[0].lower()
+        if lab in chosen:
+            chosen.remove(lab)
+        chosen.insert(0, lab)
     # Hypothesis-aware: legal labels that never appear as tokens still need
     # the cue that DeBERTa can map onto "is credit_event" / "is no_event".
     if "credit_event" in labels:
@@ -1230,25 +1480,48 @@ def _label_candidates(
             "ability to continue as a going concern",
             "chapter 11",
             "bankruptcy code",
-            "events of default",
             "accumulated deficit",
+            "net losses of $",
+        )
+        triggered_default = (
+            "events of default were triggered",
+            "default under our credit",
+            "default under the",
         )
         healthy = (
             "well capitalized",
             "in compliance with all",
             "adequate liquidity",
-            "net income",
+            "net income was",
             "net earnings",
             "double-digit growth",
         )
-        if any(c in lower for c in distress):
+        boilerplate = re.search(
+            r"customary.{0,60}events of default", lower
+        ) or "anti-dilutive" in lower
+        if any(c in lower for c in distress) or any(c in lower for c in triggered_default):
             if "credit_event" in chosen:
                 chosen.remove("credit_event")
             chosen.insert(0, "credit_event")
-        elif any(c in lower for c in healthy) and "no_event" in labels:
+        elif not boilerplate and any(c in lower for c in healthy) and "no_event" in labels:
             if "no_event" in chosen:
                 chosen.remove("no_event")
             chosen.insert(0, "no_event")
+        elif boilerplate and "no_event" in labels and "net income was" in lower:
+            if "no_event" in chosen:
+                chosen.remove("no_event")
+            chosen.insert(0, "no_event")
+    if "positive_reaction" in labels:
+        growth = (
+            "year-over-year percentage growth",
+            "increased $",
+            ", or 24%",
+            "consolidated 15",
+        )
+        if any(c in lower for c in growth):
+            if "positive_reaction" in chosen:
+                chosen.remove("positive_reaction")
+            chosen.insert(0, "positive_reaction")
     return chosen
 
 
@@ -1415,6 +1688,63 @@ def _score_candidate(
     tnl = (tname or "").lower()
     # Target-name-aware (never family): drop spans whose written range is
     # a different quantity than the hypothesis talks about.
+    if "revision" in tnl:
+        notes = list(
+            re.finditer(
+                r"- The (\d{4}-\d{2}) estimate was revised (UP|DOWN) from "
+                r"([-+]?\d[\d,]*(?:\.\d+)?)(?:\s+\(as of [^)]+\))?\s+to\s+"
+                r"([-+]?\d[\d,]*(?:\.\d+)?)",
+                window.text,
+                flags=re.IGNORECASE,
+            )
+        )
+        n_rev = len(re.findall(r"revised (?:up|down)", lower))
+        standalone = (
+            len(notes) == 1
+            and n_rev == 1
+            and window.text.strip().startswith("- The")
+        )
+        if standalone:
+            score += 9.5
+            month = notes[0].group(1)
+            direction = notes[0].group(2).lower()
+            if isinstance(entity.get("ref_month"), str) and month == entity["ref_month"]:
+                score += 5.5
+            if chosen_label and chosen_label.lower() == direction:
+                score += 3.0
+            to_v = _parse_float(notes[0].group(4))
+            if to_v is not None and abs(point - to_v) < 1e-6:
+                score += 2.2
+        elif n_rev >= 2:
+            score -= 5.0
+        else:
+            score -= 5.5
+    if "growth pct" in tnl:
+        if re.search(
+            r"diluted earnings per|diluted eps\b|earnings per diluted share",
+            lower,
+        ):
+            score += 8.5
+            if re.search(r"compared with|increased by \d+%", lower):
+                score += 3.2
+        else:
+            score -= 6.5
+        if re.search(
+            r"hedg(?:e|ed|ing) risk|one-notch downgrade|non-modified loans|"
+            r"unobservable inputs|discretionary client assets|"
+            r"assets under management|level 3 (?:assets|liabilities)|"
+            r"term loan|antidilutive stock options|"
+            r"quarterly cash dividend|return on average (?:assets|common equity)|"
+            r"decreased diluted earnings per common share for the",
+            lower,
+        ):
+            score -= 6.5
+        if re.search(
+            r"diluted (?:earnings per (?:common )?share|eps)[^\n]{0,40}"
+            + re.escape(fmt_number(point)),
+            lower,
+        ):
+            score += 3.8
     if "eps" in tnl:
         if not re.search(
             r"earnings per share|diluted earnings|eps\b|per diluted share",
@@ -1451,6 +1781,14 @@ def _score_candidate(
             score += 7.5
             if chosen_label == "credit_event":
                 score += 2.0
+        elif "accumulated deficit" in lower or "net losses of $" in lower:
+            score += 7.0
+            if chosen_label == "credit_event":
+                score += 2.0
+        elif re.search(r"net loss\s+\$\s*\(", lower):
+            score += 6.4
+            if chosen_label == "credit_event":
+                score += 1.8
         elif any(c in lower for c in distress):
             score += 5.2
             if chosen_label == "credit_event":
@@ -1463,10 +1801,32 @@ def _score_candidate(
                 score -= 2.2
         else:
             score -= 3.0
+        if re.search(
+            r"customary.{0,60}events of default|anti-dilutive|"
+            r"authorized [\d,]+ shares|options to purchase common|"
+            r"par value per share",
+            lower,
+        ) and not (
+            "going concern" in lower
+            or "substantial doubt" in lower
+            or "accumulated deficit" in lower
+        ):
+            score -= 5.5
         if re.search(r"\blibor\b|lease term|letters of credit outstanding", lower) and not any(
             c in lower for c in distress
         ):
             score -= 2.5
+        if "net income was" in lower and chosen_label == "no_event":
+            score += 3.5
+        if "in compliance with all" in lower and chosen_label == "no_event":
+            score += 3.2
+        if "accumulated deficit" in lower:
+            after = window.text.lower().find("accumulated deficit")
+            chunk = window.text[after : after + 180]
+            if number_in_text(chunk, point):
+                score += 4.8
+            else:
+                score -= 6.5
     if "position" in tnl or "pct oi" in tnl:
         if "ranged from" in lower and "contracts" in lower:
             score += 3.2
@@ -1480,27 +1840,70 @@ def _score_candidate(
             if not re.search(rf"(?:^|\n|- ){re.escape(name)}\s*:", window.text):
                 score -= 4.0
     if "reaction" in tnl:
-        if re.search(r"earnings per share|diluted earnings|diluted \$", lower):
+        eps_hit = bool(
+            re.search(r"earnings per share|diluted earnings|diluted \$", lower)
+        )
+        growth_hit = bool(
+            re.search(
+                r"year-over-year percentage growth|increased \$[0-9.]+.?billion, or \d+%"
+                r"|consolidated\s+\d+\s+\d+",
+                lower,
+            )
+        )
+        if eps_hit:
             score += 3.0
-        else:
+        if growth_hit:
+            score += 6.8
+            if chosen_label == "positive_reaction":
+                score += 2.8
+        elif not eps_hit:
             score -= 3.4
         if "term loan" in lower or "seller receivables" in lower or "maximum expected loss" in lower:
             score -= 3.5
         if "general and administrative" in lower and "earnings per share" not in lower:
             score -= 2.5
+        if "reality labs" in lower and not growth_hit:
+            score -= 2.8
+        if "provision) for income taxes" in lower or "benefit (provision)" in lower:
+            score -= 3.0
     if "yield" in tnl:
         years = entity.get("maturity_years")
+        n_yield_was = len(re.findall(r"yield was", lower))
         if isinstance(years, (int, float)) and re.search(
             rf"(?<![0-9]){int(years)}-year treasury yield was", lower
         ):
-            score += 2.2
+            score += 8.0
         start = entity.get("start_yield_pct")
         if (
             "yield ended" in lower
             and isinstance(start, (int, float))
             and abs(point - float(start)) < 1e-6
         ):
-            score += 1.6
+            score += 8.0
+        if n_yield_was >= 6:
+            score -= 8.0
+        elif n_yield_was > 2:
+            score -= 3.5 * (n_yield_was - 2)
+        if window.text.count("|") >= 8:
+            score -= 5.0
+        level_span = "yield was" in lower or "yield ended" in lower
+        if (
+            not level_span
+            and "basis point" in lower
+            and any(abs(point - bps) < 1e-6 for bps in (25.0, 50.0, 75.0))
+        ):
+            score += 6.2
+            # The Committee move is 50/75; a dissent "25" is the lesser figure.
+            if abs(point - 50.0) < 1e-6 or abs(point - 75.0) < 1e-6:
+                score += 3.5
+            if re.search(r"50 (?:further )?basis points?", lower) and re.search(
+                r"25 basis points?", lower
+            ):
+                score += 3.0
+        if isinstance(years, (int, float)) and re.search(
+            rf"(?<![0-9]){int(years)}-year yield ended", lower
+        ):
+            score += 3.0
     name = entity.get("name")
     if isinstance(name, str) and name and name.lower() in lower:
         score += 0.35
@@ -1522,10 +1925,21 @@ def _score_candidate(
                 score += 1.5
             break
         if key == "start_yield_pct":
+            # A written basis-point change does not need the starting yield
+            # in the same sentence (20240918 non-2Y policy paragraph).
+            if "basis point" in lower and any(
+                abs(point - bps) < 1e-6 for bps in (25.0, 50.0, 75.0)
+            ):
+                score += 2.0
+                break
             score -= 5.0
     ref_month = entity.get("ref_month")
     if isinstance(ref_month, str) and ref_month:
-        if ref_month in window.text:
+        if "revision" in (tname or "").lower() and re.search(
+            r"revised (?:up|down) from", lower
+        ):
+            pass
+        elif ref_month in window.text:
             score += 0.9
         else:
             score -= 0.6

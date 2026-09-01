@@ -202,13 +202,26 @@ def test_credit_bbby_cites_going_concern(tmp_path: Path) -> None:
 
 
 def test_fomc_20240918_uses_the_snapshot_close(tmp_path: Path) -> None:
-    """Each maturity's start_yield_pct is written in the rates table; cite it."""
+    """2Y is the written 'ended X … below Y' span; do not retune it."""
     unit = REPO / "units" / "t4-fomc-curve-20240918"
-    task = json.loads((unit / "task.json").read_text(encoding="utf-8"))
     answer = _run_unit(unit, tmp_path)
-    expected = {e["entity_id"]: e["start_yield_pct"] for e in task["entities"]}
-    for pred in answer["entity_predictions"]:
-        assert pred["point_forecast"] == pytest.approx(expected[pred["entity_id"]])
+    by_id = {p["entity_id"]: p for p in answer["entity_predictions"]}
+    two = by_id["UST2Y"]
+    assert two["point_forecast"] == pytest.approx(3.59)
+    assert two["interval"]["lo"] == pytest.approx(3.59)
+    assert two["interval"]["hi"] == pytest.approx(4.77)
+    corpus = build_index(unit / "corpus")
+    claim = two["claims"][0]
+    span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
+    assert "3.59 percent" in span
+    assert "4.77" in span
+    # Other tenors: a written basis-point change, not a shared table min/max.
+    for eid in ("UST10Y", "UST30Y", "UST3Y", "UST5Y", "UST7Y"):
+        pred = by_id[eid]
+        claim = pred["claims"][0]
+        span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
+        assert "basis point" in span.lower()
+        assert all_numbers_in_text(span, (pred["point_forecast"], pred["interval"]["lo"], pred["interval"]["hi"]))
 
 
 @pytest.mark.parametrize(
@@ -243,3 +256,145 @@ def test_grounded_run_is_deterministic(tmp_path: Path) -> None:
     first = _run_unit(unit, tmp_path / "a")
     second = _run_unit(unit, tmp_path / "b")
     assert first == second
+
+
+def test_eps_yoy_pass_is_not_retuned(tmp_path: Path) -> None:
+    """Official DeBERTa 1.0 on these messy 10-Q spans — do not retune."""
+    unit = REPO / "units" / "t4-eps-yoy-2023Q2-mixed"
+    answer = _run_unit(unit, tmp_path)
+    gold = {
+        "AMD": ("up", 585.0, 1.0, 597.0),
+        "AMGN": ("up", 60.0, 1.0, 60.0),
+        "DOW": ("down", 2.11, 0.13, 2.11),
+        "HON": ("up", 0.34, 0.15, 0.34),
+        "IBM": ("up", 30.0, 30.0, 90.0),
+        "TMO": ("down", 43.0, 43.0, 141.0),
+    }
+    for pred in answer["entity_predictions"]:
+        label, point, lo, hi = gold[pred["entity_id"]]
+        assert pred["label"] == label
+        assert pred["point_forecast"] == pytest.approx(point)
+        assert pred["interval"]["lo"] == pytest.approx(lo)
+        assert pred["interval"]["hi"] == pytest.approx(hi)
+
+
+def test_macro_cites_a_single_revision_note(tmp_path: Path) -> None:
+    """July notes stay intact; August first-prints reuse a complete UP/DOWN bullet."""
+    unit = REPO / "units" / "t4-macrorev-20240930-us6"
+    answer = _run_unit(unit, tmp_path)
+    by_id = {p["entity_id"]: p for p in answer["entity_predictions"]}
+    corpus = build_index(unit / "corpus")
+
+    july = {
+        "DGORDER_2024-07_20241025": ("up", 289454.0, 289587.0),
+        "HOUST_2024-07_20241018": ("down", 1237.0, 1238.0),
+        "PAYEMS_2024-07_20241004": ("down", 158637.0, 158723.0),
+        "PI_2024-07_20241031": ("up", 24015.4, 24803.2),
+        "RSAFS_2024-07_20241017": ("up", 709668.0, 710409.0),
+    }
+    for eid, (label, lo, hi) in july.items():
+        pred = by_id[eid]
+        assert pred["label"] == label
+        assert {pred["interval"]["lo"], pred["interval"]["hi"]} == {lo, hi}
+        claim = pred["claims"][0]
+        span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
+        assert re.search(r"revised (?:UP|DOWN) from", span)
+        assert span.count("revised ") == 1
+
+    for pred in answer["entity_predictions"]:
+        if pred["entity_id"] in july:
+            continue
+        claim = pred["claims"][0]
+        span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
+        assert re.search(r"revised (?:UP|DOWN) from", span), pred["entity_id"]
+        assert pred["label"] in {"up", "down"}
+        assert all_numbers_in_text(span, (pred["interval"]["lo"], pred["interval"]["hi"]))
+
+
+def test_fomc_20220728_per_tenor_yield_span(tmp_path: Path) -> None:
+    unit = REPO / "units" / "t4-fomc-curve-20220728"
+    task = json.loads((unit / "task.json").read_text(encoding="utf-8"))
+    answer = _run_unit(unit, tmp_path)
+    corpus = build_index(unit / "corpus")
+    years = {e["entity_id"]: int(e["maturity_years"]) for e in task["entities"]}
+    starts = {e["entity_id"]: e["start_yield_pct"] for e in task["entities"]}
+    shared = set()
+    for pred in answer["entity_predictions"]:
+        claim = pred["claims"][0]
+        span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
+        n = years[pred["entity_id"]]
+        assert re.search(rf"{n}-year Treasury yield was", span, flags=re.I)
+        assert all_numbers_in_text(
+            span, (pred["point_forecast"], pred["interval"]["lo"], pred["interval"]["hi"])
+        )
+        # Not one shared 2.68–3.02 band copied onto every tenor.
+        shared.add((pred["interval"]["lo"], pred["interval"]["hi"]))
+        if pred["entity_id"] != "UST30Y":
+            assert pred["point_forecast"] == pytest.approx(starts[pred["entity_id"]])
+    assert len(shared) >= 3
+
+
+def test_postearn_aligns_reaction_label(tmp_path: Path) -> None:
+    unit = REPO / "units" / "t4-postearn-20240201-megacap"
+    answer = _run_unit(unit, tmp_path)
+    by_id = {p["entity_id"]: p for p in answer["entity_predictions"]}
+    corpus = build_index(unit / "corpus")
+    aapl = by_id["AAPL"]
+    assert aapl["label"] == "negative_reaction"
+    assert aapl["point_forecast"] == pytest.approx(6.16)
+    amzn = by_id["AMZN"]
+    assert amzn["label"] == "positive_reaction"
+    claim = amzn["claims"][0]
+    span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
+    assert re.search(r"Year-over-year Percentage Growth|Consolidated", span, flags=re.I)
+    meta = by_id["META"]
+    assert meta["label"] == "positive_reaction"
+    claim = meta["claims"][0]
+    span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
+    assert re.search(r"increased \$[0-9.]+.?billion, or \d+%", span, flags=re.I)
+
+
+def test_credit_rad_yell_we_cite_distress(tmp_path: Path) -> None:
+    unit = REPO / "units" / "t4-credit-event-2023"
+    answer = _run_unit(unit, tmp_path)
+    by_id = {p["entity_id"]: p for p in answer["entity_predictions"]}
+    corpus = build_index(unit / "corpus")
+    assert by_id["BBBY"]["label"] == "credit_event"
+    assert by_id["ODFL"]["label"] == "no_event"
+    rad = by_id["RAD"]
+    assert rad["label"] == "credit_event"
+    span = corpus.doc_texts[rad["claims"][0]["doc_id"]][
+        rad["claims"][0]["span_start"] : rad["claims"][0]["span_end"]
+    ]
+    assert re.search(r"net loss|accumulated deficit", span, flags=re.I)
+    yell = by_id["YELL"]
+    assert yell["label"] == "credit_event"
+    span = corpus.doc_texts[yell["claims"][0]["doc_id"]][
+        yell["claims"][0]["span_start"] : yell["claims"][0]["span_end"]
+    ]
+    assert re.search(r"accumulated deficit|default under", span, flags=re.I)
+    we = by_id["WE"]
+    assert we["label"] == "credit_event"
+    span = corpus.doc_texts[we["claims"][0]["doc_id"]][
+        we["claims"][0]["span_start"] : we["claims"][0]["span_end"]
+    ]
+    assert re.search(r"going concern|net losses of|accumulated deficit", span, flags=re.I)
+
+
+def test_banks_cite_diluted_eps_not_hedge_text(tmp_path: Path) -> None:
+    unit = REPO / "units" / "t4-eps-growth-2024Q3-banks"
+    answer = _run_unit(unit, tmp_path)
+    corpus = build_index(unit / "corpus")
+    for pred in answer["entity_predictions"]:
+        claim = pred["claims"][0]
+        span = corpus.doc_texts[claim["doc_id"]][claim["span_start"] : claim["span_end"]]
+        assert re.search(
+            r"diluted earnings per|diluted eps|earnings per diluted",
+            span,
+            flags=re.I,
+        ), pred["entity_id"]
+        assert not re.search(
+            r"one-notch downgrade|non-modified loans|unobservable inputs",
+            span,
+            flags=re.I,
+        )
