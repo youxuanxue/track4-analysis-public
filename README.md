@@ -311,11 +311,12 @@ that at least 80% of the roster's predictions are supported (`faithfulness_thres
 2. **TabPFN + gradient-boosting (text-blind) — specification only, not yet released.** The
    text-blind tabular floor; described in `baselines/README.md` but no code is shipped.
 3. **Strong retrieval-augmented LLM-over-rows (`strong_rag_baseline/`, scaffold shipped)** —
-   runnable with `--mock` or against any local OpenAI-compatible server via `$MODEL_ENDPOINT`.
-   BM25 span-chunk retrieval with exact-span citation grounding. It deviates from the original
-   sketch: retrieval is lexical only — no dense index and no calibration head — because the
-   restricted evaluation network cannot fetch embedding weights. Quality acceptance against
-   `baseline_agent/` waits on the staging endpoint; see `baselines/README.md`.
+   runnable with a baked llama.cpp server on 127.0.0.1 (Qwen2.5-7B-Instruct Q4_K_M) or with
+   `--mock` / extract-then-predict when that local server is down. It does not call
+   `$MODEL_ENDPOINT`. BM25 span-chunk retrieval with exact-span citation grounding. It
+   deviates from the original sketch: retrieval is lexical only — no dense index and no
+   calibration head — because the restricted evaluation network cannot fetch embedding
+   weights. See `baselines/README.md` and `baselines/strong_rag_baseline/README.md`.
 
 To run the shipped minimal baseline on the worked example, from the root of this repository:
 

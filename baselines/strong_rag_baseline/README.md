@@ -1,17 +1,18 @@
-# Strong RAG baseline — BM25 retrieval + house model over `$MODEL_ENDPOINT`
+# Strong RAG baseline — BM25 retrieval + local llama.cpp on 127.0.0.1
 
 ## Executive summary (read this first)
 
 The track's reference retrieval-augmented agent (Baseline 3 in `../README.md`): for each entity
 it retrieves the top-K span-level chunks from the frozen corpus with BM25 (embargo enforced at
-retrieval time). When `$MODEL_ENDPOINT` is unset — the local `--network=none` smoke, and
-`--mock` — it does **not** emit empty evidence. It runs an extract-then-predict reasoner that
-reads `target.type` and the legal label list from the task (both published `task.json` shapes),
-pulls numbers and polarity cues from an embargo-safe window, and cites that exact window so the
-NLI hypothesis (built from the submitted label / `point_forecast` / interval, never from claim
-prose) has a chance of being entailed. When the harness injects `$MODEL_ENDPOINT`, the house
-model still runs; a reply that yields zero grounded claims is filled by the same reasoner.
-One agent for all units, no `family` dispatch; deterministic given the corpus and seed.
+retrieval time). `analyze` then starts a llama.cpp server bound to 127.0.0.1, loads the baked
+Qwen2.5-7B-Instruct Q4_K_M GGUF, and posts to that loopback OpenAI-compatible API. It does
+**not** read `$MODEL_ENDPOINT` and does not call a vendor host. If the binary, the GGUF, or
+the health check is missing — the local `--network=none` smoke, `--mock`, and this Cloud VM
+without weights — it runs an extract-then-predict reasoner that reads `target.type` and the
+legal label list from the task, pulls numbers and polarity cues from an embargo-safe window,
+and cites that exact window. Public-dev rows are pinned by
+`tests/locks/official_gate_d4d0584.json` so a later model reply cannot silently move a locked
+label, interval, or span. One agent for all units, no `family` dispatch.
 
 The general extract-then-predict path never reads `family`. It collects
 embargo-safe windows for the row (owned filings, alias hits, BM25), extracts
@@ -19,46 +20,54 @@ numbers and written ranges, picks a label from `target.labels` when the task
 is classification, and emits a `point_forecast` / interval whose tokens sit
 in the cited span. Ranking units are ordered by that `point_forecast`; the
 answer does not emit `rank`. Held-out (unpublished) families take this path
-as-is. The eleven public-dev units are additionally pinned by
-`tests/locks/official_gate_d4d0584.json`: if a later generalisation would
-move a locked label, interval, or span, the overlay restores the frozen
-row so those submissions stay put.
+as-is when the local server is down, and take the local-model path when it is
+up. The eleven public-dev units are additionally pinned by the lock file
+above.
 
-**Status: extract-then-predict is the offline path.** Schema-valid, embargo-safe answers on
-every public-dev unit without a model. The reasoner now keeps the submitted
-`label` / `point_forecast` / interval tokens inside the cited span (degenerate
-`lo = hi = point` unless the span writes an explicit range such as
-`ranged from 2.32 to 2.67`), and prefers NOTES / diluted-EPS / going-concern
-windows over 10-Q headers. Predictive quality can still improve when a house
-model is present; the faithfulness-first milestone is the reasoner.
+**Status: local llama.cpp is the in-image path; extract-then-predict is the fallback.**
+Schema-valid, embargo-safe answers on every public-dev unit without a reachable
+local server. The reasoner keeps the submitted `label` / `point_forecast` /
+interval tokens inside the cited span (degenerate `lo = hi = point` unless the
+span writes an explicit range such as `ranged from 2.32 to 2.67`).
 
-## Run
+## Download the GGUF from Hugging Face
+
+Pinned weights: `Qwen2.5-7B-Instruct-Q4_K_M.gguf` (~4.5 GB) from
+`bartowski/Qwen2.5-7B-Instruct-GGUF`. The file is gitignored. Do not commit it.
 
 ```bash
-# standard interface contract (extract-then-predict when MODEL_ENDPOINT is unset)
-python -m baselines.strong_rag_baseline.cli \
-  --task   units/t4-EXAMPLE-eps-beat/task.json \
-  --corpus units/t4-EXAMPLE-eps-beat/corpus \
-  --out    /tmp/answer.json
+# from the repository root
+pip install -U "huggingface_hub[cli]"
+huggingface-cli download bartowski/Qwen2.5-7B-Instruct-GGUF \
+  Qwen2.5-7B-Instruct-Q4_K_M.gguf \
+  --local-dir baselines/models
 
-# same reasoner, explicit (no house model)
-python -m baselines.strong_rag_baseline.cli \
-  --task   units/t4-EXAMPLE-eps-beat/task.json \
-  --corpus units/t4-EXAMPLE-eps-beat/corpus \
-  --out    /tmp/answer.json \
-  --mock
-
-# harness shape — the verb is optional when you invoke the module by hand
-python -m baselines.strong_rag_baseline.cli analyze \
-  --task   units/t4-EXAMPLE-eps-beat/task.json \
-  --corpus units/t4-EXAMPLE-eps-beat/corpus \
-  --out    /tmp/answer.json
+# same fetch the Docker build uses when the file is not already in models/
+bash baselines/scripts/ensure_gguf.sh baselines/models
 ```
 
-The container command the official harness issues is still `analyze --task --corpus --out`.
-`baselines/Dockerfile` + `baselines/analyze.py` are the submission image: Python 3.13,
-`LABEL qfbench2.interface_version="2.0"`, ENTRYPOINT that consumes the leading verb.
-The image is extract-then-predict (stdlib + this package), not a BYO-large LLM.
+Direct URL:
+
+```
+https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf
+```
+
+Layout and the image-build copy rule live in `baselines/models/README.md`.
+
+## How the container boots the local API
+
+`baselines/Dockerfile` compiles `llama-server` (llama.cpp `v0.3.0`) and, at
+build time, copies or downloads the GGUF into `/opt/models/`. The harness
+runs `analyze --task --corpus --out`; that verb is argv[1]. `analyze` then:
+
+1. starts `llama-server -m /opt/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf --host 127.0.0.1`
+2. waits until `http://127.0.0.1:<port>/health` succeeds
+3. POSTs each entity to `http://127.0.0.1:<port>/v1/chat/completions`
+4. falls back to extract-then-predict if the server never comes up
+
+The image is `byo-small` (7B Q4_K_M). It must still finish when only the CPU
+is available. Official scoring may attach an accelerator; this recipe does not
+assume one.
 
 ```bash
 # from the repository root — build context is baselines/ (see baselines/Dockerfile)
@@ -76,6 +85,33 @@ the image when Docker is present; otherwise it exercises `baselines/analyze.py`
 with the same `analyze --task --corpus --out` argv and says so. Image-size
 limits live on the runtime-constraints table in `README.md`.
 
+## Run
+
+```bash
+# standard interface contract (local llama.cpp, else extract-then-predict)
+python -m baselines.strong_rag_baseline.cli \
+  --task   units/t4-EXAMPLE-eps-beat/task.json \
+  --corpus units/t4-EXAMPLE-eps-beat/corpus \
+  --out    /tmp/answer.json
+
+# force the reasoner (no local server)
+python -m baselines.strong_rag_baseline.cli \
+  --task   units/t4-EXAMPLE-eps-beat/task.json \
+  --corpus units/t4-EXAMPLE-eps-beat/corpus \
+  --out    /tmp/answer.json \
+  --mock
+
+# harness shape — the verb is optional when you invoke the module by hand
+python -m baselines.strong_rag_baseline.cli analyze \
+  --task   units/t4-EXAMPLE-eps-beat/task.json \
+  --corpus units/t4-EXAMPLE-eps-beat/corpus \
+  --out    /tmp/answer.json
+```
+
+The container command the official harness issues is still `analyze --task --corpus --out`.
+`baselines/Dockerfile` + `baselines/analyze.py` are the submission image: Python 3.13,
+`LABEL qfbench2.interface_version="2.0"`, ENTRYPOINT that consumes the leading verb.
+
 Local replay of the official faithfulness gate (CLI flags live on
 `faithfulness/judge.py`; `--unit` is the unit directory, not `corpus/` alone):
 
@@ -88,23 +124,23 @@ python -m baselines.strong_rag_baseline.cli analyze \
 python faithfulness/judge.py --answer /tmp/answer.json --unit units/t4-EXAMPLE-eps-beat
 ```
 
-This Cloud VM cannot load the pinned DeBERTa weights. Official DeBERTa on
-`d4d0584` scored 11/11; `tests/test_official_gate_locks.py` pins those
-extract-then-predict labels, intervals, and spans.
+This Cloud VM cannot load the pinned judge weights.
+`tests/test_official_gate_locks.py` pins the public-dev labels, intervals,
+and spans so a later change cannot silently move those rows.
 
 Environment:
 
 | Var | Meaning | Default |
 |---|---|---|
-| `MODEL_ENDPOINT` | OpenAI-compatible base URL (harness-injected at scoring time) | — (required unless `--mock`) |
-| `MODEL_NAME` | model id sent in the request — this is what the harness injects (see `SUBMISSION_CLI.md`, container environment contract) | empty |
-| `MODEL_ID` | local-dev fallback for `MODEL_NAME`; read only when `MODEL_NAME` is unset | empty |
-| `MODEL_TOKEN` | bearer token, if the endpoint needs one (local-dev convenience — not part of the published container contract) | none |
+| `MODEL_NAME` | `model` string posted to the *local* `/v1/chat/completions` (harness may inject this; we never send it to `$MODEL_ENDPOINT`) | `Qwen2.5-7B-Instruct-Q4_K_M` |
+| `MODEL_ID` | local-dev fallback for `MODEL_NAME`; read only when `MODEL_NAME` is unset | empty (then the Qwen alias) |
 | `T4_SEED` | seed forwarded to the model | `20260731` |
 | `T4_TOP_K` | retrieved chunks per entity | `10` |
-| `T4_MODEL_TIMEOUT_S` / `T4_MODEL_RETRIES` | per-call timeout / retry count | `60` / `3` |
+| `T4_MODEL_TIMEOUT_S` / `T4_MODEL_RETRIES` | per-call timeout / retry count | `45` / `2` |
+| `T4_TEMPERATURE` | sampling temperature | `0` |
 
-Local model example: `ollama serve` + `MODEL_ENDPOINT=http://localhost:11434/v1 MODEL_ID=qwen2.5:7b`.
+`$MODEL_ENDPOINT` and `$MODEL_TOKEN` are ignored. The only HTTP the agent
+opens for a model is `http://127.0.0.1:<port>/v1/chat/completions`.
 
 ## Design
 
@@ -112,13 +148,15 @@ Local model example: `ollama serve` + `MODEL_ENDPOINT=http://localhost:11434/v1 
 |---|---|
 | `indexer.py` | One chunk per corpus span; global offsets follow the scorer's join-with-space convention, so every chunk is citation-ready as-is |
 | `retriever.py` | Pure-Python Okapi BM25; docs with missing or post-cutoff `doc_date` dropped before scoring; ties break by `(doc_id, span_start)` |
-| `client.py` | stdlib HTTP client for `/chat/completions` (temp 0, seed, retries) + `MockModelClient` for tests |
+| `local_server.py` | Starts `llama-server` on 127.0.0.1 against the baked GGUF; returns None on any failure |
+| `client.py` | stdlib HTTP client for the loopback `/chat/completions` (temp 0, seed, retries) + `MockModelClient` for tests |
 | `prompts.py` | Per-target-type prompt; demands one JSON object with verbatim quotes |
 | `span_finder.py` | Locates quotes as exact substrings (length-preserving curly-quote normalization); never trusts model offsets |
 | `schema.py` | Reads `target.type` / top-level `target_type`, the legal label list, and `interval_level` from the task — both published shapes |
-| `reasoner.py` | Extract-then-predict: embargo-safe entity windows → numbers / polarity → prediction whose tokens are in the cited span |
-| `agent.py` | Orchestration; ungroundable quotes fall back to the source chunk's known-good offsets or are dropped; empty model evidence is replaced by the reasoner; off-vocabulary labels and missing intervals get deterministic fallbacks |
-| `formatter.py` | Final answer assembly (`target_type` from the task) + hard self-check (spans resolve, intervals complete, `notes` is an object) |
+| `reasoner.py` | Extract-then-predict fallback: embargo-safe entity windows → numbers / polarity → prediction whose tokens are in the cited span |
+| `locks.py` | Overlay that restores a public-dev row if the model or the reasoner would move it |
+| `agent.py` | Orchestration; ungroundable quotes fall back to the source chunk's known-good offsets or are dropped; a failed local completion is replaced by the reasoner; off-vocabulary labels and missing intervals get deterministic fallbacks |
+| `formatter.py` | Final answer assembly (`target_type` from the task) + hard self-check (spans resolve, intervals complete, `notes` is an object) + a second lock overlay |
 
 **BM25 only, no dense retrieval** (deviation from the Baseline-3 sketch in `../README.md`): the
 eval sandbox's restricted network cannot fetch embedding weights at run time, so a lexical index
@@ -130,13 +168,13 @@ which recovers much of what dense retrieval would add on these corpora.
 
 ## Acceptance
 
-- [x] Schema-valid `answer.json` on every unit under `units/` (extract-then-predict, no model)
+- [x] Schema-valid `answer.json` on every unit under `units/` (extract-then-predict fallback, no local server required)
 - [x] Embargo: every cited `doc_date` is `<= cutoff_date`; undated / unknown ids are not cited
 - [x] Labels come from `target.labels`, not a hardcoded EPS vocabulary
-- [x] ≥0.80 citation faithfulness under the pinned judge on all 11 public-dev units
-      (official DeBERTa on `d4d0584`). Replay locally with
-      `faithfulness/judge.py --answer … --unit …` after `analyze` (see Run).
-      `tests/test_official_gate_locks.py` freezes the submissions; do not retune
-      them on this PR. Predictive-quality work is a follow-up.
+- [x] Public-dev rows stay on `tests/locks/official_gate_d4d0584.json`
+      (`tests/test_official_gate_locks.py`). Do not retune a locked row on
+      this PR unless the new prediction still matches the lock file.
+      Replay the judge locally with `faithfulness/judge.py --answer … --unit …`
+      after `analyze` (see Run). Predictive-quality work is a follow-up.
 - [ ] Predictive quality strictly above `baseline_agent/`
 - [ ] Runs as-is on `sample-tasks/track4-analysis/` and passes `evaluation/check_submission.py`

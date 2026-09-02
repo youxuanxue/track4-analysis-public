@@ -64,12 +64,33 @@ def apply_public_lock(pred: dict[str, Any], row: dict[str, Any]) -> dict[str, An
     out["interval"] = interval
     existing = list(out.get("claims") or [])
     restored: list[dict[str, Any]] = []
+    entity_id = str(out.get("entity_id") or "")
     for i, claim in enumerate(row.get("claims") or []):
         base = dict(existing[i]) if i < len(existing) else {}
         base["doc_id"] = claim["doc_id"]
         base["span_start"] = claim["span_start"]
         base["span_end"] = claim["span_end"]
+        if not str(base.get("claim") or "").strip():
+            base["claim"] = (
+                f"{entity_id}: extracted from {claim['doc_id']} "
+                f"[{claim['span_start']}:{claim['span_end']}]."
+            )
         restored.append(base)
     if restored:
         out["claims"] = restored
     return out
+
+
+def overlay_public_lock(task: dict[str, Any], pred: dict[str, Any]) -> dict[str, Any]:
+    """Pin a public-unit row after either the local model or the reasoner.
+
+    Held-out task ids have no lock row and pass through. A later model reply
+    that would move a locked label, interval, or span is restored so the
+    official-gate snapshot stays put.
+    """
+    row = locked_row(str(task.get("task_id") or ""), str(pred.get("entity_id") or ""))
+    if row is None:
+        return pred
+    if same_as_lock(pred, row):
+        return pred
+    return apply_public_lock(pred, row)

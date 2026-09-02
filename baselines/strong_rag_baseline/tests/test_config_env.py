@@ -1,11 +1,10 @@
-"""The reference agent must read the env var the harness actually sets (finding H6,
-prose-drift sweep 2026-08-27).
+"""The reference agent still reads ``MODEL_NAME`` (finding H6, prose-drift sweep
+2026-08-27) as the ``model`` string posted to the *local* llama.cpp server.
 
-SUBMISSION_CLI.md's container-environment contract injects ``MODEL_NAME`` — the pinned
-house-model id served at ``MODEL_ENDPOINT``. Before the fix, config.py read only
-``MODEL_ID`` (a local-dev spelling no contract defines), so under the real harness the
-agent posted ``"model": ""`` in every request. ``MODEL_ID`` survives as a local-dev
-fallback only; ``MODEL_NAME`` wins when both are set.
+SUBMISSION_CLI.md's container-environment contract injects ``MODEL_NAME``. This
+agent never sends that id to ``$MODEL_ENDPOINT`` — it only labels the loopback
+``/v1/chat/completions`` body. ``MODEL_ID`` survives as a local-dev fallback;
+``MODEL_NAME`` wins when both are set.
 """
 from __future__ import annotations
 

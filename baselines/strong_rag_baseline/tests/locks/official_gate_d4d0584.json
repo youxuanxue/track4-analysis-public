@@ -1,6 +1,6 @@
 {
   "source_commit": "d4d0584",
-  "note": "Extract-then-predict snapshot that official DeBERTa scored 11/11 (credit 0.875). A future patch that changes any pinned field must fail this lock, not silently retune a PASS.",
+  "note": "Extract-then-predict snapshot frozen at d4d0584. A future patch that changes any pinned field must fail this lock, or keep the new prediction identical to this file.",
   "units": {
     "t4-EXAMPLE-eps-beat": [
       {

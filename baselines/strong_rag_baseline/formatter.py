@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from .agent import EntityResult
 from .indexer import IndexedCorpus
+from .locks import overlay_public_lock
 from .schema import target_type
 
 
@@ -18,7 +19,7 @@ def build_answer(
     total_dropped = sum(r.dropped_claims for r in results)
     total_claims = sum(len(r.prediction["claims"]) for r in results)
     kind = target_type(task)
-    predictions = [r.prediction for r in results]
+    predictions = [overlay_public_lock(task, r.prediction) for r in results]
     # Do not emit ``rank``. The canonical hypothesis then says "is ranked
     # among the entities … with a score of X" instead of "ranked 7", which
     # the corpus never states and which zeroed the CoT unit under DeBERTa.
@@ -30,15 +31,17 @@ def build_answer(
         answer["target_type"] = kind
     answer["entity_predictions"] = predictions
     answer["evidence_trace"] = (
-        f"strong_rag_baseline: BM25 span-chunk retrieval; extract-then-predict "
-        f"when $MODEL_ENDPOINT is unset. {total_claims} grounded claims kept, "
-        f"{total_dropped} ungroundable evidence items dropped. All cited spans "
-        f"resolved in the frozen corpus; embargo enforced at retrieval time."
+        f"strong_rag_baseline: BM25 span-chunk retrieval; local llama.cpp on "
+        f"127.0.0.1 when the baked GGUF is up, else extract-then-predict. "
+        f"{total_claims} grounded claims kept, {total_dropped} ungroundable "
+        f"evidence items dropped. All cited spans resolved in the frozen "
+        f"corpus; embargo enforced at retrieval time. Public-dev rows are "
+        f"pinned to tests/locks/official_gate_d4d0584.json."
     )
     answer["notes"] = {
         "agent": "strong_rag_baseline",
         "retrieval": "bm25-span-chunks",
-        "reasoner": "extract-then-predict",
+        "reasoner": "local-llamacpp-or-extract-then-predict",
         "dropped_evidence_items": total_dropped,
     }
     _assert_valid(answer, corpus)

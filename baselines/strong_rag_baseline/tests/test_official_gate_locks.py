@@ -1,8 +1,9 @@
-"""Pin the extract-then-predict answers official DeBERTa scored 11/11.
+"""Pin the public-dev answers to ``locks/official_gate_d4d0584.json``.
 
-The snapshot lives in ``locks/official_gate_d4d0584.json``. A future reasoner
-patch that changes a label, interval, point, cited ``doc_id``, or span offsets
-must fail here — do not retune a PASS to chase predictive quality on this PR.
+The snapshot is the extract-then-predict output frozen at ``d4d0584``. A future
+reasoner or local-model patch that changes a label, interval, point, cited
+``doc_id``, or span offsets must fail here — restore the row via the lock
+overlay, or keep the new prediction identical to the lock file.
 """
 from __future__ import annotations
 

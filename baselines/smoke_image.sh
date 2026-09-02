@@ -19,8 +19,11 @@ test -f "$UNIT/task.json" || die "missing exemplar task.json"
 grep -q 'FROM python:3.13' "$DOCKERFILE" || die "Dockerfile must FROM python:3.13"
 grep -q 'LABEL qfbench2.interface_version="2.0"' "$DOCKERFILE" || die "missing interface_version LABEL"
 grep -q 'ENTRYPOINT \["python", "analyze.py"\]' "$DOCKERFILE" || die "ENTRYPOINT must be python analyze.py"
-if grep -Eiq 'torch|transformers|tensorflow|cuda' "$DOCKERFILE"; then
-  die "submission image must not bake a GPU/LLM stack"
+grep -q 'llama-server' "$DOCKERFILE" || die "Dockerfile must build llama-server"
+grep -q 'Qwen2.5-7B-Instruct-Q4_K_M' "$DOCKERFILE" || die "Dockerfile must pin the Qwen Q4_K_M GGUF"
+grep -q 'ensure_gguf' "$DOCKERFILE" || die "Dockerfile must fetch or copy the GGUF"
+if grep -Eiq '(^|[^A-Za-z0-9_])(torch|transformers|tensorflow)([^A-Za-z0-9_]|$)' "$DOCKERFILE"; then
+  die "submission image must not bake torch/transformers/tensorflow"
 fi
 
 mkdir -p "$OUT_DIR"

@@ -12,12 +12,12 @@ optional when running the module by hand::
         --corpus units/t4-EXAMPLE-eps-beat/corpus \
         --out    /tmp/answer.json
 
-When ``$MODEL_ENDPOINT`` is unset (local ``--network=none`` smoke, or
-``--mock``), the agent runs an extract-then-predict reasoner: it reads the
-legal labels and ``target.type`` from the task, retrieves embargo-safe spans,
-and emits a prediction whose numbers / label are taken from a cited span. When
-the harness injects ``$MODEL_ENDPOINT`` the house-model path still runs, and
-any reply that yields zero grounded claims is filled by the same reasoner.
+``analyze`` starts llama.cpp on 127.0.0.1 (baked GGUF) and posts to that
+loopback OpenAI-compatible API. It does not read ``$MODEL_ENDPOINT`` and does
+not call a vendor host. If the local server is missing or fails a health
+check, the extract-then-predict reasoner writes the answer. Public-dev rows
+are pinned to ``tests/locks/official_gate_d4d0584.json``. ``--mock`` skips the
+local server.
 """
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ from .client import HTTPModelClient, ModelClient
 from .config import Config
 from .formatter import build_answer
 from .indexer import build_index
+from .local_server import LocalLlamaServer, try_start_local_server
 from .retriever import BM25Index
 
 
@@ -76,31 +77,44 @@ def main(argv: list[str] | None = None) -> int:
         "--mock",
         action="store_true",
         help=(
-            "Skip $MODEL_ENDPOINT and run the extract-then-predict reasoner "
-            "(network-free; this is the local-smoke path)."
+            "Skip the local llama.cpp server and run extract-then-predict "
+            "(network-free; this is the pytest / local-smoke path)."
         ),
     )
     args = parser.parse_args(argv)
 
     config = Config.from_env()
-    use_grounded = bool(args.mock) or not config.model_endpoint
-    client: ModelClient | None
-    if use_grounded:
-        client = None
-    else:
-        client = HTTPModelClient(config)
-    answer = run(
-        args.task,
-        args.corpus,
-        args.out,
-        client,
-        config.top_k,
-        grounded=use_grounded,
-    )
+    server: LocalLlamaServer | None = None
+    client: ModelClient | None = None
+    use_grounded = bool(args.mock)
+    if not use_grounded:
+        server = try_start_local_server(
+            host=config.local_host,
+            port=config.local_port,
+            ctx=config.local_ctx,
+            startup_s=config.local_startup_s,
+        )
+        if server is None:
+            use_grounded = True
+        else:
+            client = HTTPModelClient(config, base_url=server.base_url)
+    try:
+        answer = run(
+            args.task,
+            args.corpus,
+            args.out,
+            client,
+            config.top_k,
+            grounded=use_grounded,
+        )
+    finally:
+        if server is not None:
+            server.stop()
     n_claims = sum(len(e["claims"]) for e in answer["entity_predictions"])
+    mode = "extract-then-predict" if use_grounded else "local-llamacpp"
     print(
         f"wrote {args.out} — {len(answer['entity_predictions'])} entities, "
-        f"{n_claims} grounded claims"
+        f"{n_claims} grounded claims ({mode})"
     )
     return 0
 

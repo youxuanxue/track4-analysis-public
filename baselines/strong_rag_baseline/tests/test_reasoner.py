@@ -261,7 +261,7 @@ def test_grounded_run_is_deterministic(tmp_path: Path) -> None:
 
 
 def test_eps_yoy_pass_is_not_retuned(tmp_path: Path) -> None:
-    """Official DeBERTa 1.0 on these messy 10-Q spans — do not retune."""
+    """Locked extract-then-predict spans for this unit — do not retune."""
     unit = REPO / "units" / "t4-eps-yoy-2023Q2-mixed"
     answer = _run_unit(unit, tmp_path)
     gold = {

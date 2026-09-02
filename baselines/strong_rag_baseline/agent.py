@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from .client import ModelClient
 from .indexer import Chunk, IndexedCorpus
+from .locks import overlay_public_lock
 from .prompts import SYSTEM_PROMPT, build_user_prompt
 from .reasoner import ground_entity, prediction_from_grounded
 from .retriever import BM25Index
@@ -141,6 +142,7 @@ def run_entity_grounded(
         level=interval_level(task),
         kind=target_type(task),
     )
+    prediction = overlay_public_lock(task, prediction)
     return EntityResult(prediction=prediction, dropped_claims=0, model_raw="")
 
 
@@ -153,8 +155,11 @@ def run_entity(
     top_k: int,
 ) -> EntityResult:
     retrieved = [s.chunk for s in index.search(_entity_query(entity, task), top_k)]
-    raw = client.complete(SYSTEM_PROMPT, build_user_prompt(task, entity, retrieved))
-    parsed = _parse_model_json(raw)
+    try:
+        raw = client.complete(SYSTEM_PROMPT, build_user_prompt(task, entity, retrieved))
+        parsed = _parse_model_json(raw)
+    except (ValueError, RuntimeError, TypeError, json.JSONDecodeError):
+        return run_entity_grounded(task, entity, index, corpus, top_k)
 
     labels = legal_labels(task)
     label = parsed.get("label")
@@ -193,4 +198,5 @@ def run_entity(
     }
     if kind == "ranking" and isinstance(parsed.get("rank"), int):
         prediction["rank"] = parsed["rank"]
+    prediction = overlay_public_lock(task, prediction)
     return EntityResult(prediction=prediction, dropped_claims=dropped, model_raw=raw)

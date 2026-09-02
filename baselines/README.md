@@ -19,7 +19,7 @@ also runs under a local `--network=none` smoke run.
 |----------|--------|
 | Minimal runnable RAG baseline (`baseline_agent/`) | **Shipped & runnable** — pure standard library, no model weights; produces a schema-valid `answer.json`. This is the agent the quick-start commands invoke. |
 | TabPFN / gradient-boosting text-blind baselines | **Specification only — not yet released.** No code shipped; see the descriptions below for the intended design. |
-| Strong RAG baseline (`strong_rag_baseline/`) | **Runnable offline.** BM25 span-chunk retrieval + extract-then-predict when `$MODEL_ENDPOINT` is unset (`--mock` is the same path). Legal labels and `target.type` come from the task; citations are embargo-filtered exact spans. A house model at `$MODEL_ENDPOINT` is optional; empty model evidence falls back to the reasoner. See its README. Deviation from the sketch below: lexical-only retrieval (no dense index, no calibration head yet) — the restricted eval network cannot fetch embedding weights. |
+| Strong RAG baseline (`strong_rag_baseline/`) | **Runnable offline.** BM25 span-chunk retrieval + a baked llama.cpp server on 127.0.0.1 (Qwen2.5-7B-Instruct Q4_K_M GGUF). The agent does not call `$MODEL_ENDPOINT` or a vendor API. If the local server is down, extract-then-predict writes the answer (`--mock` is that path). Legal labels and `target.type` come from the task; citations are embargo-filtered exact spans; public-dev rows are pinned to the official-gate lock. See its README. Deviation from the sketch below: lexical-only retrieval (no dense index, no calibration head yet) — the restricted eval network cannot fetch embedding weights. |
 | Citation rail example (`guardrails_example/`) | **Shipped & runnable** — optional participant-side pre-submission checks (cited `doc_date <= cutoff`, well-formed spans) with an offline demo and illustrative NeMo Guardrails wiring. Advisory only; the organizer-side gates are the authority. Not a baseline agent — a rail you can bolt onto your own. |
 
 The shipped minimal baseline trades predictive strength for zero dependencies: lexical retrieval
@@ -250,8 +250,10 @@ baselines/
     reader.py                    # rule-based EPS classifier + point/interval
     formatter.py                 # entity_predictions schema marshalling
     cli.py                       # `analyze` CLI entry point
-  Dockerfile                     # submission image: extract-then-predict, Python 3.13, verb `analyze`
+  Dockerfile                     # submission image: llama.cpp on 127.0.0.1, Python 3.13, verb `analyze`
   analyze.py                     # image ENTRYPOINT; accepts leading `analyze`
+  scripts/ensure_gguf.sh         # copy or download the Q4_K_M GGUF (gitignored)
+  models/                        # optional local GGUF home; weights are not committed
   smoke_image.sh                 # docker build+run, or local entrypoint if Docker is missing
   requirements.txt               # dependency notes (baseline is std-lib only)
   tests/
@@ -320,8 +322,9 @@ Before submitting your Docker image, verify every item:
   bash baselines/smoke_image.sh /tmp/t4-out
   ```
   Official scoring is `--network=none` or the restricted eval network. The
-  extract-then-predict ENTRYPOINT writes `answer.json` when `$MODEL_ENDPOINT`
-  is unset; do not bake a GPU model into this image.
+  ENTRYPOINT starts llama.cpp on 127.0.0.1 when the baked GGUF is present,
+  and writes `answer.json` via extract-then-predict if that local server
+  never comes up. It does not call `$MODEL_ENDPOINT`.
 
 ---
 

@@ -1,9 +1,9 @@
-"""OpenAI-compatible chat client for ``$MODEL_ENDPOINT`` (stdlib only).
+"""OpenAI-compatible chat client for the *local* llama.cpp server (stdlib only).
 
-The eval sandbox's only egress is the organizer-hosted model endpoint, reached
-over an OpenAI-compatible ``/chat/completions`` protocol. Locally, any server
-speaking that protocol works (ollama, llama.cpp, vLLM), and tests inject
-:class:`MockModelClient` — same interface, canned replies, no network.
+``analyze`` starts llama.cpp on 127.0.0.1 and posts to that loopback URL.
+This module never reads ``$MODEL_ENDPOINT`` and never opens a vendor host.
+Tests inject :class:`MockModelClient` — same interface, canned replies, no
+network.
 
 Determinism: temperature 0 and a fixed ``seed`` are sent on every request.
 """
@@ -28,13 +28,16 @@ class ModelClient(Protocol):
 @dataclass
 class HTTPModelClient:
     config: Config
+    base_url: str = ""
 
     def complete(self, system: str, user: str) -> str:
-        if not self.config.model_endpoint:
+        endpoint = (self.base_url or self.config.local_base_url).rstrip("/")
+        if not endpoint.startswith("http://127.0.0.1") and not endpoint.startswith(
+            "http://localhost"
+        ):
             raise RuntimeError(
-                "MODEL_ENDPOINT is not set. In the eval sandbox it is injected "
-                "by the harness; locally, point it at an OpenAI-compatible "
-                "server or use --mock."
+                "refusing a non-loopback model URL; this agent only calls "
+                "llama.cpp on 127.0.0.1"
             )
         payload = {
             "model": self.config.model_id,
@@ -44,12 +47,11 @@ class HTTPModelClient:
             ],
             "temperature": self.config.temperature,
             "seed": self.config.seed,
+            "max_tokens": self.config.max_tokens,
         }
         headers = {"Content-Type": "application/json"}
-        if self.config.model_token:
-            headers["Authorization"] = f"Bearer {self.config.model_token}"
         request = urllib.request.Request(
-            f"{self.config.model_endpoint}/chat/completions",
+            f"{endpoint}/chat/completions",
             data=json.dumps(payload).encode("utf-8"),
             headers=headers,
             method="POST",
@@ -62,11 +64,11 @@ class HTTPModelClient:
                 ) as response:
                     body = json.loads(response.read().decode("utf-8"))
                 return body["choices"][0]["message"]["content"]
-            except (urllib.error.URLError, KeyError, json.JSONDecodeError) as exc:
+            except (urllib.error.URLError, KeyError, json.JSONDecodeError, TimeoutError) as exc:
                 last_error = exc
                 time.sleep(min(2**attempt, 8))
         raise RuntimeError(
-            f"model call failed after {self.config.max_retries} attempts"
+            f"local model call failed after {self.config.max_retries} attempts"
         ) from last_error
 
 
