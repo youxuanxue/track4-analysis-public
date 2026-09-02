@@ -1,4 +1,4 @@
-# Submission image: local llama.cpp (Qwen2.5-7B-Instruct Q4_K_M) on 127.0.0.1.
+# Submission image: local llama.cpp (Qwen2.5-7B-Instruct-Q4_K_M.gguf) on 127.0.0.1.
 # analyze starts llama-server, then POSTs to http://127.0.0.1:<port>/v1.
 # It does not call $MODEL_ENDPOINT or a vendor API. Missing weights / a
 # failed health check fall back to extract-then-predict (network-none safe).
@@ -19,7 +19,7 @@ LABEL qfbench2.interface_version="2.0"
 WORKDIR /app
 
 # Runtime C++ bits + build toolchain (purged after llama-server is linked).
-# libgomp1 stays: llama.cpp's CPU kernels need it. No torch / transformers.
+# libgomp1 stays: llama.cpp's CPU kernels need it. No Python ML frameworks.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         ca-certificates \
