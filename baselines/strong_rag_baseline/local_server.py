@@ -1,10 +1,9 @@
-"""Start a llama.cpp OpenAI-compatible server on 127.0.0.1.
+"""Opt-in llama.cpp launcher on 127.0.0.1 (developer machine only).
 
-The submission image bakes ``llama-server`` and a Qwen2.5-7B-Instruct Q4_K_M
-GGUF. ``analyze`` binds that process to loopback only and talks to
-``/v1/chat/completions``. It never reads ``$MODEL_ENDPOINT`` and never calls a
-vendor API. Missing weights, a missing binary, or a failed health check return
-``None`` so the caller can fall back to extract-then-predict.
+Official ``analyze`` does not call this module. ``--local-llama`` /
+``T4_LOCAL_LLAMA=1`` may start ``llama-server`` against a gitignored GGUF and
+POST to loopback ``/v1/chat/completions``. It never reads ``$MODEL_ENDPOINT``.
+Missing weights, a missing binary, or a failed health check return ``None``.
 """
 from __future__ import annotations
 

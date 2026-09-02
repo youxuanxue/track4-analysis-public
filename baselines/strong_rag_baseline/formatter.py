@@ -31,17 +31,17 @@ def build_answer(
         answer["target_type"] = kind
     answer["entity_predictions"] = predictions
     answer["evidence_trace"] = (
-        f"strong_rag_baseline: BM25 span-chunk retrieval; local llama.cpp on "
-        f"127.0.0.1 when the baked GGUF is up, else extract-then-predict. "
-        f"{total_claims} grounded claims kept, {total_dropped} ungroundable "
-        f"evidence items dropped. All cited spans resolved in the frozen "
-        f"corpus; embargo enforced at retrieval time. Public-dev rows are "
-        f"pinned to tests/locks/official_gate_d4d0584.json."
+        f"strong_rag_baseline: BM25 span-chunk retrieval; extract-then-predict "
+        f"(official analyze; no localhost model server). {total_claims} grounded "
+        f"claims kept, {total_dropped} ungroundable evidence items dropped. All "
+        f"cited spans resolved in the frozen corpus; embargo enforced at "
+        f"retrieval time. Public-dev rows are pinned to "
+        f"tests/locks/official_gate_d4d0584.json."
     )
     answer["notes"] = {
         "agent": "strong_rag_baseline",
         "retrieval": "bm25-span-chunks",
-        "reasoner": "local-llamacpp-or-extract-then-predict",
+        "reasoner": "extract-then-predict",
         "dropped_evidence_items": total_dropped,
     }
     _assert_valid(answer, corpus)

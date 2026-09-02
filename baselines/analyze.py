@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Container entrypoint for the local-llama.cpp / extract-then-predict agent.
+"""Container entrypoint for the extract-then-predict agent.
 
 The harness runs the image as::
 
@@ -9,9 +9,9 @@ The harness runs the image as::
 so ``analyze`` arrives as this script's first positional. Delegates to
 ``strong_rag_baseline.cli:main``, which already declares that verb.
 
-The process starts llama.cpp on 127.0.0.1 when the baked GGUF is present,
-then calls that loopback API. It does not read ``$MODEL_ENDPOINT``. A failed
-local server falls back to extract-then-predict.
+Official analyze is extract-then-predict. It does not start a localhost
+model server and does not read ``$MODEL_ENDPOINT``. A developer-machine
+GGUF experiment path is ``--local-llama`` (default OFF).
 """
 from __future__ import annotations
 

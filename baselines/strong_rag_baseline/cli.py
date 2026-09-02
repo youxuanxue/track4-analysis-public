@@ -12,12 +12,12 @@ optional when running the module by hand::
         --corpus units/t4-EXAMPLE-eps-beat/corpus \
         --out    /tmp/answer.json
 
-``analyze`` starts llama.cpp on 127.0.0.1 (baked GGUF) and posts to that
-loopback OpenAI-compatible API. It does not read ``$MODEL_ENDPOINT`` and does
-not call a vendor host. If the local server is missing or fails a health
-check, the extract-then-predict reasoner writes the answer. Public-dev rows
-are pinned to ``tests/locks/official_gate_d4d0584.json``. ``--mock`` skips the
-local server.
+Official ``analyze`` is extract-then-predict: it does not start a localhost
+model server and does not call ``$MODEL_ENDPOINT``. Public-dev rows are pinned
+to ``tests/locks/official_gate_d4d0584.json``. ``--local-llama`` (or
+``T4_LOCAL_LLAMA=1``) is a developer-machine opt-in that may start llama.cpp
+on 127.0.0.1 against a gitignored GGUF; it is default OFF and is not the
+submission ENTRYPOINT. ``--mock`` forces the reasoner.
 """
 from __future__ import annotations
 
@@ -76,9 +76,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--mock",
         action="store_true",
+        help="Force extract-then-predict (same as the official analyze default).",
+    )
+    parser.add_argument(
+        "--local-llama",
+        action="store_true",
         help=(
-            "Skip the local llama.cpp server and run extract-then-predict "
-            "(network-free; this is the pytest / local-smoke path)."
+            "Developer-machine only: start llama.cpp on 127.0.0.1 against a "
+            "local GGUF. Default OFF; official analyze never sets this."
         ),
     )
     args = parser.parse_args(argv)
@@ -86,8 +91,10 @@ def main(argv: list[str] | None = None) -> int:
     config = Config.from_env()
     server: LocalLlamaServer | None = None
     client: ModelClient | None = None
-    use_grounded = bool(args.mock)
-    if not use_grounded:
+    # Official path: extract-then-predict. --local-llama / T4_LOCAL_LLAMA is opt-in.
+    want_local = (not args.mock) and (bool(args.local_llama) or config.local_llama)
+    use_grounded = not want_local
+    if want_local:
         server = try_start_local_server(
             host=config.local_host,
             port=config.local_port,
@@ -98,6 +105,7 @@ def main(argv: list[str] | None = None) -> int:
             use_grounded = True
         else:
             client = HTTPModelClient(config, base_url=server.base_url)
+            use_grounded = False
     try:
         answer = run(
             args.task,
@@ -111,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
         if server is not None:
             server.stop()
     n_claims = sum(len(e["claims"]) for e in answer["entity_predictions"])
-    mode = "extract-then-predict" if use_grounded else "local-llamacpp"
+    mode = "extract-then-predict" if use_grounded else "local-llama"
     print(
         f"wrote {args.out} — {len(answer['entity_predictions'])} entities, "
         f"{n_claims} grounded claims ({mode})"

@@ -332,6 +332,7 @@ _LOCAL_ENV_ALLOWLIST = {
     "T4_SEED", "T4_TOP_K",  # strong-RAG determinism/retrieval knobs (strong_rag_baseline/config.py)
     "T4_MODEL_TIMEOUT_S", "T4_MODEL_RETRIES",  # strong-RAG per-call budget (config.py)
     "T4_TEMPERATURE",  # strong-RAG sampling temperature (config.py)
+    "T4_LOCAL_LLAMA",  # developer-machine GGUF opt-in; official analyze leaves this unset
     "T4_UNIT_DIR",  # guardrails rail's unit selector (guardrails_example/rails/actions.py)
 }
 

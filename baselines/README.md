@@ -19,7 +19,7 @@ also runs under a local `--network=none` smoke run.
 |----------|--------|
 | Minimal runnable RAG baseline (`baseline_agent/`) | **Shipped & runnable** — pure standard library, no model weights; produces a schema-valid `answer.json`. This is the agent the quick-start commands invoke. |
 | TabPFN / gradient-boosting text-blind baselines | **Specification only — not yet released.** No code shipped; see the descriptions below for the intended design. |
-| Strong RAG baseline (`strong_rag_baseline/`) | **Runnable offline.** BM25 span-chunk retrieval + a baked llama.cpp server on 127.0.0.1 (Qwen2.5-7B-Instruct Q4_K_M GGUF). The agent does not call `$MODEL_ENDPOINT` or a vendor API. If the local server is down, extract-then-predict writes the answer (`--mock` is that path). Legal labels and `target.type` come from the task; citations are embargo-filtered exact spans; public-dev rows are pinned to the official-gate lock. See its README. Deviation from the sketch below: lexical-only retrieval (no dense index, no calibration head yet) — the restricted eval network cannot fetch embedding weights. |
+| Strong RAG baseline (`strong_rag_baseline/`) | **Runnable offline.** BM25 span-chunk retrieval + extract-then-predict (official `analyze`; `--network=none`). Legal labels and `target.type` come from the task; citations are embargo-filtered exact spans; public-dev rows are pinned to the official-gate lock. A developer-machine GGUF experiment path is `--local-llama` (default OFF) and is not the submission ENTRYPOINT. See its README. Deviation from the sketch below: lexical-only retrieval (no dense index, no calibration head yet) — the restricted eval network cannot fetch embedding weights. |
 | Citation rail example (`guardrails_example/`) | **Shipped & runnable** — optional participant-side pre-submission checks (cited `doc_date <= cutoff`, well-formed spans) with an offline demo and illustrative NeMo Guardrails wiring. Advisory only; the organizer-side gates are the authority. Not a baseline agent — a rail you can bolt onto your own. |
 
 The shipped minimal baseline trades predictive strength for zero dependencies: lexical retrieval
@@ -250,9 +250,9 @@ baselines/
     reader.py                    # rule-based EPS classifier + point/interval
     formatter.py                 # entity_predictions schema marshalling
     cli.py                       # `analyze` CLI entry point
-  Dockerfile                     # submission image: llama.cpp on 127.0.0.1, Python 3.13, verb `analyze`
+  Dockerfile                     # submission image: extract-then-predict, Python 3.13, verb `analyze`
   analyze.py                     # image ENTRYPOINT; accepts leading `analyze`
-  scripts/ensure_gguf.sh         # copy or download the Q4_K_M GGUF (gitignored)
+  scripts/ensure_gguf.sh         # local-dev GGUF fetch only (not copied into the image)
   models/                        # optional local GGUF home; weights are not committed
   smoke_image.sh                 # docker build+run, or local entrypoint if Docker is missing
   requirements.txt               # dependency notes (baseline is std-lib only)
@@ -322,9 +322,18 @@ Before submitting your Docker image, verify every item:
   bash baselines/smoke_image.sh /tmp/t4-out
   ```
   Official scoring is `--network=none` or the restricted eval network. The
-  ENTRYPOINT starts llama.cpp on 127.0.0.1 when the baked GGUF is present,
-  and writes `answer.json` via extract-then-predict if that local server
-  never comes up. It does not call `$MODEL_ENDPOINT`.
+  extract-then-predict ENTRYPOINT writes `answer.json` with no localhost
+  model server and without calling `$MODEL_ENDPOINT`.
+
+Operator note (starter-pack vs this file's CLI table): `SUBMISSION_CLI.md`
+still lists BYO as "bundle your own weights and run them locally". The
+starter-pack `AGENTS.md` / `SUBMISSION-DESCRIPTOR.md` in Agenthon2026-public
+describe official BYO as a LoRA adapter (rank ≤ 64) on the house base
+(`nvidia/nemotron-3-super-120b-a12b`), served in-process (`vllm.LLM`) —
+never full in-image weights and never a POST to localhost. This image
+follows that starter-pack: deterministic extract-then-predict, category
+`byo-small`, access local. `--local-llama` is a developer-machine
+experiment only.
 
 ---
 

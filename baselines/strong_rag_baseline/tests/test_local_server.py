@@ -83,22 +83,32 @@ def test_config_ignores_model_endpoint(monkeypatch) -> None:
     assert "model:8000" not in cfg.local_base_url
 
 
-def test_analyze_ignores_model_endpoint_and_falls_back(tmp_path, monkeypatch) -> None:
-    """A harness-injected house URL must not be contacted; write the lock fallback."""
+def test_analyze_ignores_model_endpoint_and_does_not_boot_llama(
+    tmp_path, monkeypatch
+) -> None:
+    """Official analyze is extract-then-predict: no house URL, no localhost server."""
     from baselines.strong_rag_baseline.cli import main
 
     unit = (
         Path(__file__).resolve().parents[3] / "units" / "t4-EXAMPLE-eps-beat"
     )
     opened: list[str] = []
+    started = {"n": 0}
 
     def _boom(req, timeout=None):  # noqa: ARG001
         url = getattr(req, "full_url", str(req))
         opened.append(url)
         raise AssertionError(f"agent opened {url}")
 
+    def _no_start(**_kwargs):
+        started["n"] += 1
+        raise AssertionError("official analyze must not start llama.cpp")
+
     monkeypatch.setenv("MODEL_ENDPOINT", "http://model:8000/v1")
     monkeypatch.setattr("urllib.request.urlopen", _boom)
+    monkeypatch.setattr(
+        "baselines.strong_rag_baseline.cli.try_start_local_server", _no_start
+    )
     out = tmp_path / "answer.json"
     code = main(
         [
@@ -113,4 +123,45 @@ def test_analyze_ignores_model_endpoint_and_falls_back(tmp_path, monkeypatch) ->
     )
     assert code == 0
     assert opened == []
+    assert started["n"] == 0
     assert out.is_file()
+
+
+def test_local_llama_flag_attempts_the_opt_in_server(tmp_path, monkeypatch) -> None:
+    from baselines.strong_rag_baseline.cli import main
+
+    unit = (
+        Path(__file__).resolve().parents[3] / "units" / "t4-EXAMPLE-eps-beat"
+    )
+    started = {"n": 0}
+
+    def _none(**_kwargs):
+        started["n"] += 1
+        return None
+
+    monkeypatch.setattr(
+        "baselines.strong_rag_baseline.cli.try_start_local_server", _none
+    )
+    out = tmp_path / "answer.json"
+    code = main(
+        [
+            "analyze",
+            "--local-llama",
+            "--task",
+            str(unit / "task.json"),
+            "--corpus",
+            str(unit / "corpus"),
+            "--out",
+            str(out),
+        ]
+    )
+    assert code == 0
+    assert started["n"] == 1
+    assert out.is_file()
+
+
+def test_config_local_llama_defaults_off(monkeypatch) -> None:
+    monkeypatch.delenv("T4_LOCAL_LLAMA", raising=False)
+    assert Config.from_env().local_llama is False
+    monkeypatch.setenv("T4_LOCAL_LLAMA", "1")
+    assert Config.from_env().local_llama is True

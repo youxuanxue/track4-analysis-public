@@ -8,7 +8,7 @@
 #   qfbench2-common @ git+https://github.com/Agenthon-2026/Agenthon2026-public.git@v2.3.1#subdirectory=common
 #
 # The strong RAG baseline in baselines/strong_rag_baseline/ IS shipped and runnable
-# (BM25 retrieval + local llama.cpp on 127.0.0.1, or extract-then-predict). Unreleased: only its
+# (BM25 retrieval + extract-then-predict). A developer-machine GGUF path lives
+# behind --local-llama and is not the submission image. Unreleased: only its
 # dense index and learned calibration head. Its heavyweight deps (transformers, torch, sentence-transformers,
-# rank-bm25, scikit-learn) are intentionally NOT pinned here. llama-server is compiled in the
-# Dockerfile, not installed from this file.
+# rank-bm25, scikit-learn) are intentionally NOT pinned here.

@@ -1,8 +1,9 @@
 """Runtime configuration for the strong RAG baseline (env-driven, no files).
 
-The submission talks to a llama.cpp server on 127.0.0.1. It does not read
-``$MODEL_ENDPOINT`` and does not call a vendor API. ``MODEL_NAME`` / ``MODEL_ID``
-are only the ``model`` string posted to the *local* ``/v1/chat/completions``.
+Official analyze is extract-then-predict. ``T4_LOCAL_LLAMA`` is a
+developer-machine opt-in (default off) and is not set by the submission
+image. ``MODEL_NAME`` / ``MODEL_ID`` label a loopback request only when that
+flag is on. ``$MODEL_ENDPOINT`` is never read as a client URL.
 """
 from __future__ import annotations
 
@@ -10,6 +11,10 @@ import os
 from dataclasses import dataclass
 
 from .local_server import DEFAULT_ALIAS, DEFAULT_CTX, DEFAULT_HOST, DEFAULT_PORT, DEFAULT_STARTUP_S
+
+
+def _env_on(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass(frozen=True)
@@ -21,6 +26,7 @@ class Config:
     max_retries: int
     temperature: float  # fixed at 0 for determinism; env override for experiments
     max_tokens: int
+    local_llama: bool  # developer-machine opt-in; official analyze leaves this false
     local_host: str
     local_port: int
     local_ctx: int
@@ -37,8 +43,8 @@ class Config:
             host = DEFAULT_HOST
         return Config(
             # MODEL_NAME is what the harness injects (SUBMISSION_CLI.md container
-            # contract); MODEL_ID is a local-dev fallback only. Neither selects a
-            # remote endpoint — the request always goes to 127.0.0.1.
+            # contract); MODEL_ID is a local-dev fallback only. Used only when
+            # --local-llama / T4_LOCAL_LLAMA is on; never sent to $MODEL_ENDPOINT.
             model_id=os.environ.get("MODEL_NAME")
             or os.environ.get("MODEL_ID", "")
             or DEFAULT_ALIAS,
@@ -48,6 +54,7 @@ class Config:
             max_retries=int(os.environ.get("T4_MODEL_RETRIES", "2")),
             temperature=float(os.environ.get("T4_TEMPERATURE", "0")),
             max_tokens=int(os.environ.get("T4_MAX_TOKENS", "384")),
+            local_llama=_env_on("T4_LOCAL_LLAMA"),
             local_host=host,
             local_port=int(os.environ.get("T4_LOCAL_PORT", str(DEFAULT_PORT))),
             local_ctx=int(os.environ.get("T4_LOCAL_CTX", str(DEFAULT_CTX))),

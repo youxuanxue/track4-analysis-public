@@ -31,26 +31,20 @@ def test_dockerfile_is_python_313_interface_2() -> None:
     assert 'LABEL qfbench2.interface_version="2.0"' in text
     assert 'ENTRYPOINT ["python", "analyze.py"]' in text
     assert "CMD" in text and "analyze" in text
-    assert "llama-server" in text
-    assert "Qwen2.5-7B-Instruct-Q4_K_M" in text
-    assert "ensure_gguf" in text
-    assert "127.0.0.1" in text
-    assert not re.search(r"\b(torch|transformers|tensorflow)\b", text, flags=re.I)
+    assert "llama-server" not in text
+    assert "ensure_gguf" not in text
+    assert not re.search(r"\b(torch|transformers|tensorflow|cuda)\b", text, flags=re.I)
 
 
 def test_image_recipe_copies_the_reasoner_and_the_public_lock() -> None:
     text = _DOCKERFILE.read_text(encoding="utf-8")
     assert "COPY strong_rag_baseline" in text
     assert "COPY analyze.py" in text
-    assert "COPY models" in text
-    assert "ensure_gguf.sh" in text
     assert _LOCK.is_file()
     # .dockerignore must not drop the lock JSON the reasoner loads at runtime.
     dockerignore = (_BASELINES / ".dockerignore").read_text(encoding="utf-8")
     assert "official_gate" not in dockerignore
     assert "locks" not in dockerignore or "Keep tests/locks" in dockerignore
-    assert (_BASELINES / "scripts" / "ensure_gguf.sh").is_file()
-    assert (_BASELINES / "models").is_dir()
 
 
 def test_analyze_entrypoint_accepts_the_harness_argv(tmp_path: Path) -> None:
@@ -80,6 +74,7 @@ def test_analyze_entrypoint_accepts_the_harness_argv(tmp_path: Path) -> None:
     assert pred["point_forecast"] == expected["point_forecast"]
     assert pred["interval"]["lo"] == expected["interval"]["lo"]
     assert pred["interval"]["hi"] == expected["interval"]["hi"]
+    assert "extract-then-predict" in (proc.stdout or "")
 
 
 def test_wrong_verb_is_rejected(tmp_path: Path) -> None:

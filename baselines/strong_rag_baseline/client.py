@@ -1,9 +1,8 @@
-"""OpenAI-compatible chat client for the *local* llama.cpp server (stdlib only).
+"""OpenAI-compatible chat client for an opt-in loopback llama.cpp (stdlib only).
 
-``analyze`` starts llama.cpp on 127.0.0.1 and posts to that loopback URL.
-This module never reads ``$MODEL_ENDPOINT`` and never opens a vendor host.
-Tests inject :class:`MockModelClient` — same interface, canned replies, no
-network.
+Official ``analyze`` does not construct this client. ``--local-llama`` posts
+to 127.0.0.1 only. This module never reads ``$MODEL_ENDPOINT`` and never
+opens a vendor host. Tests inject :class:`MockModelClient`.
 
 Determinism: temperature 0 and a fixed ``seed`` are sent on every request.
 """

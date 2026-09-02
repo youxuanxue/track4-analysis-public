@@ -1,1 +1,1 @@
-"""Strong RAG baseline: BM25 retrieval + local llama.cpp on 127.0.0.1."""
+"""Strong RAG baseline: BM25 retrieval + extract-then-predict (official analyze)."""

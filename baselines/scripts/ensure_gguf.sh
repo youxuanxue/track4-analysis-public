@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Place Qwen2.5-7B-Instruct Q4_K_M into DEST_DIR.
-# Used at image build (DEST_DIR=/opt/models) and locally (DEST_DIR=baselines/models).
-# The GGUF is gitignored; this script downloads it from Hugging Face when absent.
+# Place Qwen2.5-7B-Instruct Q4_K_M into DEST_DIR for a developer machine.
+# Official analyze does not run this script and does not bake the GGUF.
+# The file is gitignored; this script downloads it from Hugging Face when absent.
 set -euo pipefail
 
 NAME="Qwen2.5-7B-Instruct-Q4_K_M.gguf"
