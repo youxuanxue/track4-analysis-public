@@ -38,6 +38,11 @@ RUN git clone --depth 1 --branch "${LLAMA_CPP_REF}" \
     && cmake -S /tmp/llama.cpp -B /tmp/llama.cpp/build \
          -DCMAKE_BUILD_TYPE=Release \
          -DGGML_NATIVE=OFF \
+         -DBUILD_SHARED_LIBS=OFF \
+         -DLLAMA_BUILD_TESTS=OFF \
+         -DLLAMA_BUILD_EXAMPLES=OFF \
+         -DLLAMA_BUILD_UI=OFF \
+         -DLLAMA_OPENSSL=OFF \
     && cmake --build /tmp/llama.cpp/build --target llama-server -j"$(nproc)" \
     && cp /tmp/llama.cpp/build/bin/llama-server /usr/local/bin/llama-server \
     && rm -rf /tmp/llama.cpp \
