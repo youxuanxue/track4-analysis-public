@@ -6,6 +6,7 @@ import json
 import time
 import urllib.request
 from dataclasses import dataclass
+from http.client import HTTPException
 from typing import Callable, Protocol
 from urllib.parse import urlsplit
 
@@ -97,6 +98,7 @@ class HTTPModelClient:
                 return content
             except (
                 OSError,
+                HTTPException,
                 KeyError,
                 IndexError,
                 TypeError,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+from http.client import BadStatusLine, IncompleteRead
 from copy import deepcopy
 from dataclasses import replace
 
@@ -184,6 +185,33 @@ def test_http_failures_use_the_same_atomic_fallback(model_case):
         ).prediction
         == expected
     )
+
+
+@pytest.mark.parametrize(
+    "error", [BadStatusLine("broken status"), IncompleteRead(b"partial")]
+)
+def test_http_protocol_errors_fall_back_instead_of_aborting(
+    model_case, monkeypatch, error
+):
+    monkeypatch.setenv("MODEL_ENDPOINT", "https://house.example/v1")
+    calls = []
+
+    class InterruptedResponse(io.BytesIO):
+        def read1(self, size):
+            raise error
+
+    def failed_request(req, timeout):
+        calls.append(req.full_url)
+        if isinstance(error, IncompleteRead):
+            return InterruptedResponse()
+        raise error
+
+    monkeypatch.setattr("urllib.request.urlopen", failed_request)
+    client = HTTPModelClient(replace(Config.from_env(), max_retries=1))
+    task, entity, index, corpus, expected, _ = model_case
+    result = agent.run_entity(task, entity, index, corpus, client, 5)
+    assert result.prediction == expected
+    assert len(calls) == 1
 
 
 def test_prompt_uses_shared_target_shape_and_omits_rank():

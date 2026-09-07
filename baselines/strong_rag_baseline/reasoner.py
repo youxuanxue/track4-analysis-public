@@ -45,6 +45,7 @@ class Window:
     span_start: int
     span_end: int
     text: str
+    entity_ambiguous: bool = False
 
 
 @dataclass
@@ -103,8 +104,15 @@ def collect_windows(
     cutoff: str,
     top_k: int = 10,
     extra_needles: Iterable[str] = (),
+    roster: Iterable[dict[str, Any]] = (),
 ) -> list[Window]:
     aliases = _entity_aliases(entity)
+    other_aliases = {
+        alias
+        for row in roster
+        if row.get("entity_id") != entity.get("entity_id")
+        for alias in _entity_aliases(row)
+    } - set(aliases)
     retrieved = {
         hit.chunk.doc_id
         for hit in index.search(" ".join([*aliases, *extra_needles]), top_k)
@@ -121,16 +129,33 @@ def collect_windows(
         doc_match = _alias_hit(doc_id, aliases)
         if not (owned or doc_match or doc_id in retrieved or _alias_hit(text, aliases)):
             continue
-        # Preserve exact offsets and avoid mixing adjacent entities' table rows.
+        # Keep sentence/row offsets; a filing can discuss other roster entities.
         for paragraph in re.finditer(r"[^\n]+", text):
-            start, end = paragraph.span()
-            for pos in range(start, end, 600):
-                last = min(pos + 1000, end)
-                snippet = text[pos:last]
-                if snippet.strip() and (
-                    owned or doc_match or _alias_hit(snippet, aliases)
-                ):
-                    windows.append(Window(doc_id, date, pos, last, snippet))
+            boundaries = [paragraph.start()]
+            boundaries.extend(
+                paragraph.start() + match.end()
+                for match in re.finditer(
+                    r"(?<=[.!?;])\s+(?=[A-Z])", paragraph.group()
+                )
+            )
+            boundaries.append(paragraph.end())
+            for start, end in zip(boundaries, boundaries[1:]):
+                sentence = text[start:end]
+                own_mention = _alias_hit(sentence, aliases)
+                other_mention = _alias_hit(sentence, other_aliases)
+                if other_mention and not own_mention:
+                    continue
+                if not (owned or doc_match or own_mention):
+                    continue
+                for pos in range(start, end, 600):
+                    last = min(pos + 1000, end)
+                    snippet = text[pos:last]
+                    if snippet.strip() and (
+                        owned or doc_match or _alias_hit(snippet, aliases)
+                    ):
+                        windows.append(
+                            Window(doc_id, date, pos, last, snippet, other_mention)
+                        )
     return windows
 
 
@@ -225,7 +250,7 @@ def _estimate(spec: TargetSpec, entity: dict[str, Any], text: str) -> Estimate |
     if spec.mode == "growth_pct":
         metric = _metric(spec)
         match = re.search(
-            rf"{metric}[^\d\n]{{0,32}}\$?\s*({number})\s*(million|billion|dollars)?\s*,?\s*(?:compared (?:to|with)|versus|vs\.?)[^\d\n]{{0,32}}\$?\s*({number})\s*(million|billion|dollars)?",
+            rf"{metric}[^\d\n()+$-]{{0,32}}\$?\s*({number})\s*(million|billion|dollars)?\s*,?\s*(?:compared (?:to|with)|versus|vs\.?)[^\d\n()+$-]{{0,32}}\$?\s*({number})\s*(million|billion|dollars)?",
             text,
             re.I,
         )
@@ -382,9 +407,12 @@ def ground_entity(
         cutoff=spec.cutoff,
         top_k=top_k,
         extra_needles=_task_needles(task, entity),
+        roster=task.get("entities", []),
     )
     candidates: list[tuple[Estimate, Window]] = []
     for window in windows:
+        if window.entity_ambiguous:
+            continue
         estimate = _estimate(spec, entity, window.text)
         if estimate and finite_number(estimate.point):
             if spec.lower is not None and estimate.point < spec.lower:
