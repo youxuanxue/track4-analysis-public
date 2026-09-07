@@ -1,0 +1,340 @@
+"""Run the participant baseline, then assess its output in a separate process context."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import platform
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+from .dataset import REPO, load_cases, public_roots, require_external, stage_inputs
+from .report import markdown, summarize
+
+
+def write_json(path: Path, value: object) -> None:
+    path.write_text(
+        json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def provenance() -> dict:
+    import qfbench2_common as common
+    from qfbench2_track_analysis.scoring import SCORER_VERSION
+
+    def git(*args):
+        return subprocess.run(
+            ["git", *args], cwd=REPO, capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    source = hashlib.sha256()
+    for folder in ("baselines", "qfbench2_track_analysis", "faithfulness"):
+        for path in sorted((REPO / folder).rglob("*.py")):
+            if "__pycache__" not in path.parts:
+                source.update(
+                    path.relative_to(REPO).as_posix().encode()
+                    + b"\0"
+                    + path.read_bytes()
+                )
+    return {
+        "git_commit": git("rev-parse", "HEAD"),
+        "git_dirty": bool(git("status", "--porcelain")),
+        "source_digest": source.hexdigest(),
+        "python": platform.python_version(),
+        "scorer_version": SCORER_VERSION,
+        "toolkit_build": common.build_identity(),
+        "toolkit_build_verified": common.verify_build_identity(),
+        "toolkit_source_digest": common.package_tree_digest(),
+    }
+
+
+def run_local(
+    stage: Path, output: Path, *, mode: str, seed: int, timeout: float
+) -> dict:
+    argv = [
+        sys.executable,
+        str(REPO / "baselines/analyze.py"),
+        "analyze",
+        "--task",
+        str(stage / "task.json"),
+        "--corpus",
+        str(stage / "corpus"),
+        "--out",
+        str(output / "answer.json"),
+        "--diagnostics",
+        str(output / "diagnostics.json"),
+    ]
+    if mode == "grounded":
+        argv.append("--mock")
+    env = dict(os.environ, QFBENCH_SEED=str(seed), T4_LOCAL_LLAMA="0")
+    if mode == "grounded":
+        for key in ("MODEL_ENDPOINT", "MODEL_TOKEN", "MODEL_NAME"):
+            env.pop(key, None)
+    try:
+        proc = subprocess.run(
+            argv,
+            cwd=stage,
+            env=env,
+            timeout=timeout,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return {
+            "returncode": proc.returncode,
+            "timed_out": False,
+            "isolation": "local-process",
+        }
+    except subprocess.TimeoutExpired:
+        return {"returncode": 124, "timed_out": True, "isolation": "local-process"}
+
+
+def run_container(
+    stage: Path, output: Path, *, image: str, seed: int, timeout: float
+) -> dict:
+    def docker(*args, limit=60):
+        return subprocess.run(
+            ["docker", *args], capture_output=True, text=True, check=True, timeout=limit
+        )
+
+    container = docker(
+        "create",
+        "--platform",
+        "linux/amd64",
+        "--network=none",
+        "--cpus=1",
+        "--memory=1g",
+        "-e",
+        f"QFBENCH_SEED={seed}",
+        image,
+        "analyze",
+        "--task",
+        "/input/task.json",
+        "--corpus",
+        "/input/corpus",
+        "--out",
+        "/output/answer.json",
+        "--diagnostics",
+        "/output/diagnostics.json",
+        "--mock",
+    ).stdout.strip()
+    try:
+        docker("cp", str(stage), f"{container}:/input")
+        try:
+            docker("start", "--attach", container, limit=timeout)
+            code = int(
+                docker("inspect", "--format", "{{.State.ExitCode}}", container).stdout
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "returncode": 124,
+                "timed_out": True,
+                "isolation": "docker-network-none",
+                "limits": {"cpus": 1, "memory": "1g"},
+            }
+        except subprocess.CalledProcessError as exc:
+            code = exc.returncode
+        if code == 0:
+            docker("cp", f"{container}:/output/.", str(output))
+        return {
+            "returncode": code,
+            "timed_out": False,
+            "isolation": "docker-network-none",
+            "limits": {"cpus": 1, "memory": "1g"},
+        }
+    finally:
+        docker("rm", "--force", container)
+
+
+def evidence_ledger(stage: Path) -> dict:
+    from baselines.strong_rag_baseline.evidence import prepare_evidence
+    from baselines.strong_rag_baseline.indexer import build_index
+    from baselines.strong_rag_baseline.retriever import BM25Index
+
+    task = json.loads((stage / "task.json").read_text(encoding="utf-8"))
+    corpus = build_index(stage / "corpus")
+    index = BM25Index(corpus.chunks, task["cutoff_date"])
+    return {
+        "task_id": task["task_id"],
+        "used_for_prediction": False,
+        "entities": [
+            prepare_evidence(task, entity, index, corpus).ledger
+            for entity in task["entities"]
+        ],
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    source = ap.add_mutually_exclusive_group(required=True)
+    source.add_argument("--units", type=Path, help="Directory of public practice units")
+    source.add_argument(
+        "--manifest", type=Path, help="External private development roster"
+    )
+    ap.add_argument(
+        "--out", type=Path, required=True, help="New directory outside public worktrees"
+    )
+    ap.add_argument("--mode", choices=("grounded", "model"), default="grounded")
+    ap.add_argument("--profile", choices=("smoke", "production"), default="smoke")
+    ap.add_argument("--seeds", type=int, nargs="+", default=[20260731])
+    ap.add_argument("--timeout", type=float, default=480)
+    ap.add_argument(
+        "--image", help="Run the grounded baseline in this local Docker image"
+    )
+    args = ap.parse_args(argv)
+    if not 0 < args.timeout <= 600:
+        ap.error("timeout must be in (0, 600] seconds")
+    if len(set(args.seeds)) != len(args.seeds) or any(
+        not 0 <= seed < 2**32 for seed in args.seeds
+    ):
+        ap.error("seeds must be distinct unsigned 32-bit integers")
+    if args.mode == "model" and (args.image or not os.environ.get("MODEL_ENDPOINT")):
+        ap.error(
+            "model evaluation requires a configured local MODEL_ENDPOINT; container mode is offline only"
+        )
+    try:
+        require_external(args.out, public_roots())
+        cases = load_cases(units=args.units, manifest=args.manifest)
+        from qfbench2_common import manifest, taskcard
+        from .assess import assess_unit
+
+        for case in cases:
+            _, errors = taskcard.load_and_validate(case.unit_dir)
+            errors += manifest.verify_manifest(case.unit_dir)
+            if errors:
+                raise ValueError(f"invalid input card or manifest for {case.case_id}")
+        if args.profile == "production":
+            from qfbench2_track_analysis.scoring import build_verifier
+
+            build_verifier(
+                {}
+            )  # Refuse unavailable production scoring before running an agent.
+        identity = provenance()
+        image = None
+        if args.image:
+            result = subprocess.run(
+                ["docker", "image", "inspect", args.image],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=30,
+            )
+            info = json.loads(result.stdout)[0]
+            if info["Architecture"] != "amd64":
+                raise ValueError("evaluation image must be linux/amd64")
+            image = info["Id"]
+            identity["image_id"] = image
+            identity["image_repo_digests"] = info.get("RepoDigests", [])
+        args.out = args.out.resolve()
+        args.out.mkdir(parents=True, exist_ok=False)
+        rows = []
+        for case in cases:
+            for seed in args.seeds:
+                output = args.out / case.case_id / f"seed-{seed}"
+                output.mkdir(parents=True)
+                started = time.monotonic()
+                with tempfile.TemporaryDirectory(prefix="t4-evaluation-input-") as temp:
+                    stage = Path(temp) / "input"
+                    digest = stage_inputs(case.unit_dir, stage)
+                    evidence = evidence_ledger(stage)
+                    write_json(output / "evidence.json", evidence)
+                    preparation_elapsed = time.monotonic() - started
+                    started = time.monotonic()
+                    if image:
+                        execution = run_container(
+                            stage, output, image=image, seed=seed, timeout=args.timeout
+                        )
+                    else:
+                        execution = run_local(
+                            stage,
+                            output,
+                            mode=args.mode,
+                            seed=seed,
+                            timeout=args.timeout,
+                        )
+                elapsed = time.monotonic() - started
+                # Truth paths are never passed to the predictor and opened only after it exits.
+                realized = (
+                    json.loads(case.truth_path.read_text(encoding="utf-8"))
+                    if case.truth_path
+                    else None
+                )
+                assessment_output = output
+                if execution["returncode"] != 0:
+                    assessment_output = output / "failed-execution"
+                    assessment_output.mkdir()
+                assessment = assess_unit(
+                    case.unit_dir,
+                    assessment_output,
+                    realized=realized,
+                    profile=args.profile,
+                )
+                row = {
+                    "case_id": case.case_id,
+                    "split": case.split,
+                    "group": case.group,
+                    "seed": seed,
+                    "profile": args.profile,
+                    "input_digest": digest,
+                    "elapsed_s": elapsed,
+                    "preparation_elapsed_s": preparation_elapsed,
+                    "evidence_stats": {
+                        "entities": len(evidence["entities"]),
+                        "without_candidates": sum(
+                            not entity["records"] for entity in evidence["entities"]
+                        ),
+                        "candidate_spans": sum(
+                            len(entity["records"]) for entity in evidence["entities"]
+                        ),
+                    },
+                    "execution": execution,
+                    "assessment": assessment,
+                    "status": "completed",
+                }
+                diagnostics_path = output / "diagnostics.json"
+                if diagnostics_path.is_file():
+                    row["diagnostics"] = json.loads(
+                        diagnostics_path.read_text(encoding="utf-8")
+                    )
+                write_json(output / "result.json", row)
+                rows.append(row)
+                print(
+                    f"{case.case_id} seed={seed}: exit={execution['returncode']} "
+                    f"{args.profile}_admissible={assessment['admissible']}",
+                    flush=True,
+                )
+        report = {
+            "schema_version": 1,
+            "mode": args.mode,
+            "profile": args.profile,
+            "provenance": identity,
+            "runs": rows,
+            "summary": summarize(rows),
+            "by_split": {
+                split: summarize([row for row in rows if row["split"] == split])
+                for split in sorted({row["split"] for row in rows})
+            },
+        }
+        write_json(args.out / "report.json", report)
+        (args.out / "report.md").write_text(markdown(report), encoding="utf-8")
+        print(f"Report: {args.out / 'report.md'}")
+        return (
+            0
+            if all(
+                row["execution"]["returncode"] == 0 and row["assessment"]["admissible"]
+                for row in rows
+            )
+            else 1
+        )
+    except Exception as exc:
+        print(f"Evaluation aborted: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

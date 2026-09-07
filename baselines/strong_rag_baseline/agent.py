@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import Literal
 
 from .client import ModelClient
 from .indexer import Chunk, IndexedCorpus
@@ -22,6 +23,15 @@ from .validation import validate_prediction
 #: per entity so an unpublished family still retrieves its own vocabulary.
 _QUERY_SUFFIX = "results revenue earnings guidance outlook growth"
 
+FallbackReason = Literal[
+    "forced_grounded",
+    "no_endpoint",
+    "model_request",
+    "model_json",
+    "model_evidence",
+    "model_prediction",
+]
+
 
 @dataclass
 class EntityResult:
@@ -29,6 +39,8 @@ class EntityResult:
     dropped_claims: int
     model_raw: str
     rationale: str = ""
+    source: Literal["model", "grounded"] = "grounded"
+    fallback_reason: FallbackReason | None = None
 
 
 def _parse_model_json(raw: str) -> dict:
@@ -147,17 +159,21 @@ def run_entity(
     top_k: int,
 ) -> EntityResult:
     retrieved = [s.chunk for s in index.search(_entity_query(entity, task), top_k)]
+    failure_stage: FallbackReason = "model_request"
     try:
         raw = client.complete(SYSTEM_PROMPT, build_user_prompt(task, entity, retrieved))
+        failure_stage = "model_json"
         parsed = _parse_model_json(raw)
         kind = target_type(task)
         point = parsed.get("point_forecast")
         band = parsed.get("interval")
+        failure_stage = "model_evidence"
         claims, dropped = _ground_claims(parsed.get("evidence"), corpus, retrieved)
         if not claims or dropped:
             raise ValueError(
                 "model evidence does not exactly resolve in retrieved text"
             )
+        failure_stage = "model_prediction"
         prediction: dict = {
             "entity_id": entity.get("entity_id", ""),
             "interval": band,
@@ -179,5 +195,9 @@ def run_entity(
         OverflowError,
         RecursionError,
     ):
-        return run_entity_grounded(task, entity, index, corpus, top_k)
-    return EntityResult(prediction=prediction, dropped_claims=dropped, model_raw=raw)
+        result = run_entity_grounded(task, entity, index, corpus, top_k)
+        result.fallback_reason = failure_stage
+        return result
+    return EntityResult(
+        prediction=prediction, dropped_claims=dropped, model_raw=raw, source="model"
+    )
