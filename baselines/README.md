@@ -9,7 +9,7 @@ text-blind to fully retrieval-grounded. **Beat the text-blind baselines** (TabPF
 boosting) to show that reading the evidence corpus adds value. **Beat the RAG baseline** to show
 that better reasoning, retrieval, or calibration is possible. All baselines run inside a Docker
 container on the restricted eval network: no open internet — the only egress is model-API
-traffic through the organizer's audited proxy (declared vendor domains) or to the
+traffic through the organizer's audited proxy to the
 organizer-hosted `$MODEL_ENDPOINT`. The shipped minimal baseline needs no network at all, so it
 also runs under a local `--network=none` smoke run.
 
@@ -19,7 +19,7 @@ also runs under a local `--network=none` smoke run.
 |----------|--------|
 | Minimal runnable RAG baseline (`baseline_agent/`) | **Shipped & runnable** — pure standard library, no model weights; produces a schema-valid `answer.json`. This is the agent the quick-start commands invoke. |
 | TabPFN / gradient-boosting text-blind baselines | **Specification only — not yet released.** No code shipped; see the descriptions below for the intended design. |
-| Strong RAG baseline (`strong_rag_baseline/`) | **Scaffold shipped — runnable with `--mock` or any local OpenAI-compatible server.** BM25 span-chunk retrieval + house model via `$MODEL_ENDPOINT`, exact-span citation grounding. Quality acceptance (beats `baseline_agent/`, ≥0.80 faithfulness under the pinned judge) waits on the staging endpoint; see its README. Deviation from the sketch below: lexical-only retrieval (no dense index, no calibration head yet) — the restricted eval network cannot fetch embedding weights. |
+| Strong RAG baseline (`strong_rag_baseline/`) | **Runnable.** BM25 retrieval and task-aware prediction through the official `$MODEL_ENDPOINT` using `$MODEL_NAME`. No endpoint or `--mock` selects the offline fallback; `--local-llama` is an opt-in development experiment. All tasks use the same evidence and target handling. Dense retrieval and a learned calibration head are not shipped. See its README for verification limits. |
 | Citation rail example (`guardrails_example/`) | **Shipped & runnable** — optional participant-side pre-submission checks (cited `doc_date <= cutoff`, well-formed spans) with an offline demo and illustrative NeMo Guardrails wiring. Advisory only; the organizer-side gates are the authority. Not a baseline agent — a rail you can bolt onto your own. |
 
 The shipped minimal baseline trades predictive strength for zero dependencies: lexical retrieval
@@ -43,7 +43,7 @@ If your agent cannot outperform TabPFN on predictive quality, the evidence corpu
 reasoning have added no value on tabular features alone.
 
 **Limitation.** Text-blind agents cannot produce grounded citations. A text-blind submission
-scores zero faithfulness and is ineligible (composite = None). TabPFN is listed to establish
+cannot pass the faithfulness gate; an inadmissible unit scores `W = -0.27`. TabPFN is listed to establish
 the text-blind predictive floor, not as a submittable strategy.
 
 Expected performance: classification accuracy ~0.45–0.55, faithfulness gate pass rate: 0%,
@@ -70,10 +70,9 @@ composite score: ineligible.
 1. Uses the `corpus_ref` pointer from the entity row to retrieve relevant passages from the
    frozen corpus using hybrid BM25 + dense retrieval (BAAI/bge-m3 or equivalent).
 2. Passes the top-K retrieved passages plus the entity's tabular features to an LLM with a
-   structured prompt. The LLM tier can be a bundled open-weights checkpoint (e.g.,
-   Mistral-7B-Instruct, byo-small category) **or** an API call over the restricted network — the
-   organizer-hosted `$MODEL_ENDPOINT` (OpenAI-compatible) or a declared vendor model API through
-   the audited proxy (api category).
+   structured prompt. Official inference uses the organizer-hosted `$MODEL_ENDPOINT`
+   (OpenAI-compatible), with `$MODEL_NAME` supplied by the harness. BYO adapters are also served
+   by the organizer; see the submission-category note below.
 3. Generates a prediction (label or numeric estimate), a claim sentence, and a citation for each
    material statement.
 4. A **calibration head** (a small quantile regression model) converts the LLM's raw confidence
@@ -82,8 +81,8 @@ composite score: ineligible.
 This is the only baseline that can produce grounded citations and therefore the only one that can
 be eligible for the composite score.
 
-Expected performance: classification accuracy ~0.50–0.60, faithfulness gate pass rate ~65–75%,
-composite score ~0.30–0.40.
+This architecture is a design sketch, not a measured score for the shipped agent. Public practice
+smoke runs cannot establish prediction quality because their resolved outcomes are not available.
 
 ---
 
@@ -119,9 +118,9 @@ Constraints:
 
 ### 1. Corpus Indexer
 
-Reads all `*.json` files from `corpus/`, extracts `span_index` arrays (character-level passages),
-and builds a hybrid BM25 + dense dual-encoder index per entity row (using the `corpus_ref` field
-to scope each entity's retrieval).
+Reads corpus documents, excluding manifest indexes, using their `text` field or the scorer's
+`spans[].text` join convention. The runnable indexer builds BM25 chunks with exact character
+offsets; the hybrid dense component below is an unimplemented extension.
 
 ### 2. Retriever
 
@@ -161,11 +160,10 @@ Predict: will AAPL beat, miss, or land inline with consensus EPS (threshold 5%)?
 {"label": "beat|miss|inline", "point_forecast": <float>, "claims": [...]}
 ```
 
-The LLM is called with `temperature=0.0` for determinism (pin temperature/seed where the API
-supports it, and pin the model to a dated snapshot version). When run locally, a 4-bit quantised
-checkpoint is used to fit within the memory budget; when run over the restricted network, the
-same prompt goes to `$MODEL_ENDPOINT` or a declared vendor API through the audited proxy, with
-vendor-side tools (web search, code execution, retrieval) disabled.
+The LLM uses the model settings in `strong_rag_baseline/config.py`; the model identity comes from
+the harness. Official requests go to `$MODEL_ENDPOINT` through the audited proxy, with
+vendor-side tools (web search, code execution, retrieval) disabled. Local GGUF inference is an
+explicit development option, not the official serving contract.
 
 ### 4. Calibration Head
 
@@ -213,25 +211,23 @@ filter is not the same as being eligible.
 | Non-empty citations | Every claim must include at least one citation with a `doc_id` that appears in `manifest.json`. |
 | Valid span offsets | `span_start` and `span_end` must be non-negative integers; `text[span_start:span_end]` must resolve to a non-empty string. |
 | Embargo compliance | Every cited `doc_date` must be `<= cutoff_date` from `task.json`. |
-| NLI entailment | The NLI entailment score between the cited span text and the claim text must exceed `0.5` (`tau_citation`), evaluated offline by `EnsembleNLIJudge`; the submission is admissible when at least 80% of claims are supported (`faithfulness_threshold = 0.80`). |
+| NLI entailment | The judge compares a cited span with the canonical hypothesis built from the submitted prediction, not the claim prose. The supported fraction uses the entity roster as denominator; thresholds come from the unit card. A local judge preview needs version and environment information to be comparable with production. |
 
 ---
 
-## Recommended open-weights models
+## Models and deployment
 
 | Role | Model | Licence | Notes |
 |------|-------|---------|-------|
 | Retrieval encoder | `BAAI/bge-m3` | MIT | 1.5 B params; supports dense, sparse, and multi-vector retrieval |
-| Reader / Reasoner | `mistralai/Mistral-7B-Instruct-v0.3` | Apache 2.0 | Strong instruction following; fits in 8 GB VRAM at 4-bit |
-| Reader (alt) | `meta-llama/Meta-Llama-3-8B-Instruct` | Llama 3 Community | Slightly better on financial reasoning; requires licence acceptance |
+| Reader / Reasoner | Harness-provided `MODEL_NAME` | Organizer model disclosure | Access through the house endpoint; BYO uses an organizer-hosted adapter |
 | NLI judge (local) | `cross-encoder/nli-deberta-v3-large` | MIT | Use before submission to estimate faithfulness score offline |
 | Tabular (text-blind) | `TabPFN` | MIT | Best for small cross-sections (< 1000 rows); classification only |
 
-All locally run models must be baked into the Docker image. No HuggingFace Hub downloads are
-possible at scoring time — hub domains are not on the restricted-network allowlist, and
-`TRANSFORMERS_OFFLINE=1` is set in the scoring environment. API-accessed models (via the audited
-proxy or `$MODEL_ENDPOINT`) must instead be pinned to dated snapshot versions and disclosed —
-with their training cutoffs — in the submission metadata.
+The optional retrieval and tabular models above are development references, not bundled
+components. Check current organizer rules and licenses before adding them. No HuggingFace Hub
+downloads are possible at scoring time. Disclose every model used, its revision and training
+cutoff in submission metadata; reader deployment follows the category note below.
 
 ---
 
@@ -250,7 +246,11 @@ baselines/
     reader.py                    # rule-based EPS classifier + point/interval
     formatter.py                 # entity_predictions schema marshalling
     cli.py                       # `analyze` CLI entry point
-  Dockerfile                     # reproducible scoring container (no network required)
+  Dockerfile                     # house-endpoint agent with offline fallback; verb `analyze`
+  analyze.py                     # image ENTRYPOINT; accepts leading `analyze`
+  scripts/ensure_gguf.sh         # local-dev GGUF fetch only (not copied into the image)
+  models/                        # optional local GGUF home; weights are not committed
+  smoke_image.sh                 # actual Docker build+run; fails if Docker is unavailable
   requirements.txt               # dependency notes (baseline is std-lib only)
   tests/
     test_cli_exemplar.py         # end-to-end test against t4-EXAMPLE-eps-beat
@@ -273,15 +273,15 @@ Before submitting your Docker image, verify every item:
 
 - [ ] **1. Docker image built and tested locally.**
   ```bash
-  docker build -t my-t4-agent:latest .
+  docker build --platform linux/amd64 -f baselines/Dockerfile -t t4-analyze:latest baselines
   ```
 
 - [ ] **2. `analyze` CLI works with the exemplar unit.**
   ```bash
-  docker run --rm --network=none \
+  docker run --rm --platform linux/amd64 --network=none \
     -v $(pwd)/units/t4-EXAMPLE-eps-beat:/input:ro \
     -v /tmp/t4-out:/output \
-    my-t4-agent:latest \
+    t4-analyze:latest \
     analyze --task /input/task.json --corpus /input/corpus --out /output/answer.json
   cat /tmp/t4-out/answer.json
   ```
@@ -311,14 +311,27 @@ Before submitting your Docker image, verify every item:
 - [ ] **5. Evidence trace is non-empty and human-readable.**
 
 - [ ] **6. Network behaviour verified.**
-  Official scoring runs on the restricted eval network (audited-proxy egress to model APIs
+  Official scoring runs on the restricted eval network (audited-proxy egress to the house endpoint
   only; every connection logged). Verify your agent has no open-internet dependency and
   degrades gracefully when no network is present (the local smoke fallback):
   ```bash
-  docker run --rm --network=none my-t4-agent:latest \
-    python -c "import urllib.request; urllib.request.urlopen('https://example.com')" \
-    && echo "FAIL" || echo "PASS: no open-internet dependency"
+  bash baselines/smoke_image.sh /tmp/t4-out
   ```
+  This command tests the offline fallback in the actual image and requires Docker. Run
+  `python baselines/analyze.py analyze --task ... --corpus ... --out ... --mock` separately
+  for a local CLI check. Validate endpoint access separately with the official harness.
+  Neither check proves production NLI admission or prediction quality.
+
+Submission categories follow the organizer's
+[BYO starter pack](https://github.com/Agenthon-2026/Agenthon2026-public/blob/main/starter-packs/track4/AGENTS.md#bringing-your-own-model-adapter-only-rank--64)
+and [descriptor guide](https://github.com/Agenthon-2026/Agenthon2026-public/blob/main/starter-packs/track4/SUBMISSION-DESCRIPTOR.md).
+The default house-endpoint path is `api`. Official BYO supplies one LoRA adapter, rank at most 64,
+for the organizer-hosted Nemotron base; the organizer extracts it and starts the server.
+Participants use the supplied endpoint and model name, and do not start vLLM themselves.
+The older full-weights wording in `SUBMISSION_CLI.md` conflicts with that newer guidance.
+A submission with no model calls can still declare a deterministic engine using the documented
+legacy `byo-small`, `access: local`, and `none-deterministic-engine` entry.
+`--local-llama` remains a development experiment only.
 
 ---
 
@@ -335,6 +348,8 @@ Before submitting your Docker image, verify every item:
 Composite = 0.7 × predictive_quality − 0.3 × |interval_coverage − interval_level| (interval_level
 = 0.90). The calibration term is a coverage **penalty**, not a reward — adding raw coverage would
 incentivise trivially wide intervals. Higher composite wins. Leaderboard sorted `desc`. Ineligible
-submissions (failed faithfulness or embargo) receive `score = None`. Units whose resolved outcome
+units (failed faithfulness or embargo) receive `W = -0.27` and remain in the denominator.
+The organizer confirmed this in the [scoring correction](https://github.com/Agenthon-2026/track4-analysis-public/issues/1#issuecomment-5534948217).
+Units whose resolved outcome
 has no numeric target (pure-label tasks) have no calibration leg: the coverage term is dropped and
 composite = 0.7 × predictive_quality.

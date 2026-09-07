@@ -22,6 +22,8 @@ env/
 
 # Model weights / caches (staged into the scoring image, not committed)
 /model-cache/
+*.gguf
+baselines/models/*.gguf
 
 # Local scratch
 *.log

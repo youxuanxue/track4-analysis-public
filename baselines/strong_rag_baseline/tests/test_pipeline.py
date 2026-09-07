@@ -1,111 +1,121 @@
-"""End-to-end pipeline test on the example unit with a mock model client."""
+"""Pipeline integration on synthetic inputs without public prediction locks."""
+
 from __future__ import annotations
 
 import json
-from pathlib import Path
+import pytest
 
-from baselines.strong_rag_baseline.cli import run
+from baselines.strong_rag_baseline.cli import main, run
 from baselines.strong_rag_baseline.client import MockModelClient
-from baselines.strong_rag_baseline.indexer import build_index
-
-EXAMPLE_UNIT = Path(__file__).resolve().parents[3] / "units" / "t4-EXAMPLE-eps-beat"
-DOC_ID = "EDGAR_0000320193_8K_20240201"
 
 
-def make_mock_reply() -> str:
-    corpus = build_index(EXAMPLE_UNIT / "corpus")
-    doc_text = corpus.doc_texts[DOC_ID]
-    quote = doc_text[10:150]
-    return json.dumps(
-        {
-            "label": "beat",
-            "point_forecast": 1.58,
-            "interval": {"level": 0.90, "lo": 1.45, "hi": 1.72},
-            "evidence": [
-                {  # groundable: verbatim corpus substring
-                    "doc_id": DOC_ID,
-                    "quote": quote,
-                    "claim": "Apple announced quarterly results in its press release.",
+@pytest.fixture
+def unit(tmp_path):
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    text = "Acme expects revenue growth of 5 percent next quarter, in a range of 4 to 6 percent."
+    (corpus / "release.json").write_text(
+        json.dumps(
+            {
+                "doc_id": "release",
+                "doc_date": "2024-01-10",
+                "text": text,
+            }
+        )
+    )
+    task = tmp_path / "task.json"
+    task.write_text(
+        json.dumps(
+            {
+                "task_id": "synthetic-pipeline",
+                "cutoff_date": "2024-01-31",
+                "prompt": "Predict Acme revenue growth, in percent, for the next quarter.",
+                "target": {
+                    "type": "regression",
+                    "name": "revenue_growth_pct",
+                    "unit": "percent",
                 },
-                {  # ungroundable: fabricated quote, must be dropped or chunk-mapped
-                    "doc_id": DOC_ID,
-                    "quote": "zzz this text appears nowhere zzz",
-                    "claim": "A fabricated statement.",
-                },
-                {  # unknown doc: must be dropped
-                    "doc_id": "NOT_A_DOC",
-                    "quote": quote,
-                    "claim": "Cited from outside the corpus.",
-                },
-            ],
-        }
+                "entities": [{"entity_id": "ACME", "name": "Acme"}],
+                "interval_level": 0.9,
+            }
+        )
+    )
+    reply = {
+        "point_forecast": 5.0,
+        "interval": {"level": 0.9, "lo": 4.0, "hi": 6.0},
+        "evidence": [
+            {
+                "doc_id": "release",
+                "quote": text,
+                "claim": "Acme expects 5 percent growth.",
+            }
+        ],
+    }
+    return task, corpus, reply
+
+
+def test_pipeline_preserves_valid_model_prediction_and_source_offsets(unit, tmp_path):
+    task, corpus, reply = unit
+    answer = run(
+        task,
+        corpus,
+        tmp_path / "output" / "answer.json",
+        MockModelClient(json.dumps(reply)),
+        5,
+    )
+    [prediction] = answer["entity_predictions"]
+    assert prediction["entity_id"] == "ACME"
+    assert prediction["point_forecast"] == 5.0
+    assert prediction["interval"] == reply["interval"]
+    [claim] = prediction["claims"]
+    assert claim["doc_id"] == "release"
+    assert claim["span_start"] == 0
+    assert claim["span_end"] == len(reply["evidence"][0]["quote"])
+    assert json.loads((tmp_path / "output" / "answer.json").read_text()) == answer
+
+
+def test_pipeline_is_deterministic(unit, tmp_path):
+    task, corpus, reply = unit
+    client = MockModelClient(json.dumps(reply))
+    assert run(task, corpus, tmp_path / "a.json", client, 5) == run(
+        task, corpus, tmp_path / "b.json", client, 5
     )
 
 
-def run_once(tmp_path: Path, reply: str) -> dict:
-    return run(
-        task_path=EXAMPLE_UNIT / "task.json",
-        corpus_dir=EXAMPLE_UNIT / "corpus",
-        out_path=tmp_path / "answer.json",
-        client=MockModelClient(reply=reply),
-        top_k=5,
-    )
-
-
-def test_pipeline_produces_grounded_schema_valid_answer(tmp_path):
-    answer = run_once(tmp_path, make_mock_reply())
-
-    assert answer["task_id"] == "t4-EXAMPLE-eps-beat"
-    assert isinstance(answer["notes"], dict)
-    [entity] = answer["entity_predictions"]
-    assert entity["entity_id"] == "AAPL"
-    assert entity["label"] == "beat"
-    assert entity["interval"]["lo"] <= entity["interval"]["hi"]
-
-    corpus = build_index(EXAMPLE_UNIT / "corpus")
-    assert entity["claims"], "expected at least one grounded claim"
-    for claim in entity["claims"]:
-        doc_text = corpus.doc_texts[claim["doc_id"]]
-        span_text = doc_text[claim["span_start"] : claim["span_end"]]
-        assert span_text, "span must resolve to non-empty corpus text"
-    # The unknown-doc evidence item can never survive.
-    assert all(c["doc_id"] != "NOT_A_DOC" for c in entity["claims"])
-
-
-def test_pipeline_is_deterministic(tmp_path):
-    reply = make_mock_reply()
-    first = run_once(tmp_path / "a", reply)
-    second = run_once(tmp_path / "b", reply)
-    assert first == second
-
-
-def test_off_vocabulary_label_falls_back_deterministically(tmp_path):
-    reply = json.loads(make_mock_reply())
-    reply["label"] = "moon"
-    answer = run_once(tmp_path, json.dumps(reply))
-    [entity] = answer["entity_predictions"]
-    assert entity["label"] == "beat"  # first allowed label
-
-
-def test_missing_interval_gets_fallback_band(tmp_path):
-    reply = json.loads(make_mock_reply())
+def test_missing_interval_uses_the_complete_grounded_prediction(unit, tmp_path):
+    task, corpus, reply = unit
     del reply["interval"]
-    answer = run_once(tmp_path, json.dumps(reply))
-    [entity] = answer["entity_predictions"]
-    assert entity["interval"]["lo"] < entity["interval"]["hi"]
-
-
-def test_mock_cli_flag_smoke(tmp_path):
-    from baselines.strong_rag_baseline.cli import main
-
-    exit_code = main(
-        [
-            "--task", str(EXAMPLE_UNIT / "task.json"),
-            "--corpus", str(EXAMPLE_UNIT / "corpus"),
-            "--out", str(tmp_path / "answer.json"),
-            "--mock",
-        ]
+    reply["point_forecast"] = 999.0
+    model = run(
+        task, corpus, tmp_path / "model.json", MockModelClient(json.dumps(reply)), 5
     )
-    assert exit_code == 0
-    answer = json.loads((tmp_path / "answer.json").read_text())
-    assert answer["entity_predictions"]
+    fallback = run(task, corpus, tmp_path / "fallback.json", None, 5, grounded=True)
+    assert model["entity_predictions"] == fallback["entity_predictions"]
+    assert model["entity_predictions"][0]["point_forecast"] != 999.0
+
+
+def test_mock_cli_never_calls_an_injected_endpoint(unit, tmp_path, monkeypatch):
+    task, corpus, _ = unit
+    monkeypatch.setenv("MODEL_ENDPOINT", "https://house.example/v1")
+
+    def no_network(*args, **kwargs):
+        pytest.fail("--mock must not use a model endpoint")
+
+    monkeypatch.setattr("urllib.request.urlopen", no_network)
+    out = tmp_path / "answer.json"
+    assert (
+        main(
+            [
+                "analyze",
+                "--task",
+                str(task),
+                "--corpus",
+                str(corpus),
+                "--out",
+                str(out),
+                "--mock",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(out.read_text())["entity_predictions"][0]["claims"]

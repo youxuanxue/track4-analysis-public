@@ -1,7 +1,10 @@
 """Component tests: indexer offsets, BM25 embargo/determinism, span finding."""
+
 from __future__ import annotations
 
 from pathlib import Path
+
+import pytest
 
 from baselines.strong_rag_baseline.indexer import Chunk, build_index
 from baselines.strong_rag_baseline.retriever import BM25Index
@@ -19,7 +22,9 @@ def test_chunk_offsets_resolve_in_joined_text():
 
 
 def make_chunk(doc_id: str, text: str, date: str | None = "2024-01-01") -> Chunk:
-    return Chunk(doc_id=doc_id, doc_date=date, span_start=0, span_end=len(text), text=text)
+    return Chunk(
+        doc_id=doc_id, doc_date=date, span_start=0, span_end=len(text), text=text
+    )
 
 
 def test_bm25_drops_post_cutoff_and_undated_docs():
@@ -31,6 +36,35 @@ def test_bm25_drops_post_cutoff_and_undated_docs():
     index = BM25Index(chunks, cutoff_date="2024-03-15")
     hits = index.search("services revenue", top_k=10)
     assert [h.chunk.doc_id for h in hits] == ["ok"]
+
+
+@pytest.mark.parametrize(
+    "invalid_date",
+    [None, "", "2024-02-30", "2024-1-1", "20240101", "2024-01-01T00:00:00", 20240101],
+)
+def test_invalid_dates_never_reach_retrieval_or_fallback(invalid_date):
+    from baselines.strong_rag_baseline.agent import run_entity_grounded
+    from baselines.strong_rag_baseline.indexer import IndexedCorpus
+
+    task = {
+        "cutoff_date": "2024-03-15",
+        "target": {"name": "diluted_eps", "type": "regression"},
+    }
+    entity = {"entity_id": "WGT", "name": "Widget A"}
+    chunks = [
+        make_chunk("ok", "Widget A diluted EPS was 2.5."),
+        make_chunk("bad", "Widget A diluted EPS was 999.", date=invalid_date),
+    ]
+    corpus = IndexedCorpus(
+        chunks,
+        {c.doc_id: c.text for c in chunks},
+        {c.doc_id: c.doc_date for c in chunks},
+    )
+    index = BM25Index(chunks, task["cutoff_date"])
+    assert [hit.chunk.doc_id for hit in index.search("Widget EPS", 10)] == ["ok"]
+    prediction = run_entity_grounded(task, entity, index, corpus, 10).prediction
+    assert prediction["point_forecast"] == 2.5
+    assert prediction["claims"][0]["doc_id"] == "ok"
 
 
 def test_bm25_ranking_is_deterministic_and_relevant():

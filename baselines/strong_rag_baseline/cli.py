@@ -12,52 +12,56 @@ optional when running the module by hand::
         --corpus units/t4-EXAMPLE-eps-beat/corpus \
         --out    /tmp/answer.json
 
-Requires an OpenAI-compatible model server at ``$MODEL_ENDPOINT`` (injected by
-the harness at scoring time; locally use ollama/llama.cpp or ``--mock`` for a
-network-free smoke run with a canned model reply).
+Official ``analyze`` uses ``MODEL_ENDPOINT`` and ``MODEL_NAME`` when supplied
+by the harness. Missing endpoints and invalid model replies use the grounded
+reasoner. ``--local-llama`` is an explicit developer-machine experiment;
+``--mock`` forces the network-free reasoner.
 """
+
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
-from .agent import run_entity
-from .client import HTTPModelClient, MockModelClient, ModelClient
+from .agent import run_entity, run_entity_grounded
+from .client import HTTPModelClient, ModelClient
 from .config import Config
 from .formatter import build_answer
 from .indexer import build_index
+from .local_server import LocalLlamaServer, try_start_local_server
 from .retriever import BM25Index
-
-_MOCK_REPLY = json.dumps(
-    {
-        "label": None,
-        "point_forecast": 0.0,
-        "interval": {"level": 0.90, "lo": -1.0, "hi": 1.0},
-        "evidence": [],
-    }
-)
 
 
 def run(
     task_path: Path,
     corpus_dir: Path,
     out_path: Path,
-    client: ModelClient,
+    client: ModelClient | None,
     top_k: int,
+    *,
+    grounded: bool = False,
 ) -> dict:
     task = json.loads(task_path.read_text(encoding="utf-8"))
     corpus = build_index(corpus_dir)
     index = BM25Index(corpus.chunks, task["cutoff_date"])
-    results = [
-        run_entity(task, entity, index, corpus, client, top_k)
-        for entity in task.get("entities", [])
-    ]
+    if grounded or client is None:
+        results = [
+            run_entity_grounded(task, entity, index, corpus, top_k)
+            for entity in task.get("entities", [])
+        ]
+    else:
+        results = [
+            run_entity(task, entity, index, corpus, client, top_k)
+            for entity in task.get("entities", [])
+        ]
     answer = build_answer(task, results, corpus)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
-        json.dumps(answer, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        json.dumps(answer, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
+        encoding="utf-8",
     )
     return answer
 
@@ -73,19 +77,63 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--mock",
         action="store_true",
-        help="Use a canned model reply (no network) — wiring smoke runs only.",
+        help="Run the grounded reasoner without a model call.",
+    )
+    parser.add_argument(
+        "--local-llama",
+        action="store_true",
+        help=(
+            "Developer-machine only: start llama.cpp on 127.0.0.1 against a "
+            "local GGUF. Default OFF."
+        ),
     )
     args = parser.parse_args(argv)
 
     config = Config.from_env()
-    client: ModelClient = (
-        MockModelClient(reply=_MOCK_REPLY) if args.mock else HTTPModelClient(config)
-    )
-    answer = run(args.task, args.corpus, args.out, client, config.top_k)
+    deadline = time.monotonic() + config.unit_timeout_s
+    server: LocalLlamaServer | None = None
+    client: ModelClient | None = None
+    want_local = (not args.mock) and (bool(args.local_llama) or config.local_llama)
+    use_grounded = bool(args.mock) or not (config.model_endpoint or want_local)
+    if want_local:
+        server = try_start_local_server(
+            host=config.local_host,
+            port=config.local_port,
+            ctx=config.local_ctx,
+            startup_s=config.local_startup_s,
+        )
+        if server is None:
+            use_grounded = True
+        else:
+            client = HTTPModelClient(
+                config, base_url=server.base_url, deadline=deadline
+            )
+            use_grounded = False
+    elif not use_grounded:
+        client = HTTPModelClient(config, deadline=deadline)
+    try:
+        answer = run(
+            args.task,
+            args.corpus,
+            args.out,
+            client,
+            config.top_k,
+            grounded=use_grounded,
+        )
+    finally:
+        if server is not None:
+            server.stop()
     n_claims = sum(len(e["claims"]) for e in answer["entity_predictions"])
+    mode = (
+        "extract-then-predict"
+        if use_grounded
+        else "local-llama"
+        if want_local
+        else "house-model"
+    )
     print(
         f"wrote {args.out} — {len(answer['entity_predictions'])} entities, "
-        f"{n_claims} grounded claims"
+        f"{n_claims} grounded claims ({mode})"
     )
     return 0
 

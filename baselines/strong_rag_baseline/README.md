@@ -1,72 +1,122 @@
-# Strong RAG baseline — BM25 retrieval + house model over `$MODEL_ENDPOINT`
+# Strong RAG baseline - BM25 retrieval and evidence-grounded prediction
 
 ## Executive summary (read this first)
 
-The track's reference retrieval-augmented agent (Baseline 3 in `../README.md`): for each entity
-it retrieves the top-K span-level chunks from the frozen corpus with BM25 (embargo enforced at
-retrieval time), sends them with the entity's tabular features to the house model at
-`$MODEL_ENDPOINT`, and turns the model's quoted evidence into claims with **exact
-`(doc_id, span_start, span_end)` citations** — model-supplied offsets are never trusted; quotes
-are located as verbatim substrings of the corpus, and anything ungroundable is dropped rather
-than cited loosely. One agent for all units, no per-unit tuning; deterministic given the model
-pin and seed (temperature 0, fixed seed, stable tie-breaks).
-
-**Status: scaffold.** Fully runnable end-to-end with `--mock` or any local OpenAI-compatible
-server; quality acceptance (beats `baseline_agent/`, ≥0.80 faithfulness under the pinned judge)
-waits on the staging `$MODEL_ENDPOINT`.
+This baseline retrieves evidence for each entity from the frozen corpus and predicts the target
+defined by the task. By default, `analyze` calls the organizer-provided `$MODEL_ENDPOINT` using
+`$MODEL_NAME`; the HTTP client honors the harness proxy environment. Without an endpoint, or with
+`--mock`, it uses a deterministic offline reasoner. Both paths use the same task schema,
+embargo filtering, exact citation offsets, and output validation on every task. Local GGUF
+inference is an explicit development option and is separate from official model serving.
+Passing a local output or citation check does not establish production NLI admission or
+predictive quality.
 
 ## Run
 
+The harness supplies the model environment listed in
+[`SUBMISSION_CLI.md`](../../SUBMISSION_CLI.md#container-environment-contract-restricted-mode-set-by-the-harness).
+The CLI accepts the same leading verb as the submission container:
+
 ```bash
-# standard interface contract
-python -m baselines.strong_rag_baseline.cli \
+python -m baselines.strong_rag_baseline.cli analyze \
   --task   units/t4-EXAMPLE-eps-beat/task.json \
   --corpus units/t4-EXAMPLE-eps-beat/corpus \
   --out    /tmp/answer.json
 
-# wiring smoke run without any model server
-python -m baselines.strong_rag_baseline.cli --task ... --corpus ... --out ... --mock
+# Explicit offline fallback, even when an endpoint is configured.
+python -m baselines.strong_rag_baseline.cli analyze \
+  --task   units/t4-EXAMPLE-eps-beat/task.json \
+  --corpus units/t4-EXAMPLE-eps-beat/corpus \
+  --out    /tmp/answer.json \
+  --mock
 ```
 
-Environment:
+The image recipe is [`baselines/Dockerfile`](../Dockerfile), with
+[`analyze.py`](../analyze.py) consuming the harness verb. It contains runtime Python modules;
+test fixtures and development model weights are excluded. From the repository root:
 
-| Var | Meaning | Default |
-|---|---|---|
-| `MODEL_ENDPOINT` | OpenAI-compatible base URL (harness-injected at scoring time) | — (required unless `--mock`) |
-| `MODEL_NAME` | model id sent in the request — this is what the harness injects (see `SUBMISSION_CLI.md`, container environment contract) | empty |
-| `MODEL_ID` | local-dev fallback for `MODEL_NAME`; read only when `MODEL_NAME` is unset | empty |
-| `MODEL_TOKEN` | bearer token, if the endpoint needs one (local-dev convenience — not part of the published container contract) | none |
-| `T4_SEED` | seed forwarded to the model | `20260731` |
-| `T4_TOP_K` | retrieved chunks per entity | `10` |
-| `T4_MODEL_TIMEOUT_S` / `T4_MODEL_RETRIES` | per-call timeout / retry count | `60` / `3` |
+```bash
+docker build --platform linux/amd64 -f baselines/Dockerfile -t t4-analyze:latest baselines
+bash baselines/smoke_image.sh /tmp/t4-out
+```
 
-Local model example: `ollama serve` + `MODEL_ENDPOINT=http://localhost:11434/v1 MODEL_ID=qwen2.5:7b`.
+`smoke_image.sh` builds the image and runs its offline fallback under `--network=none`. It exits
+nonzero when Docker or its daemon is unavailable. The Python CLI command above can still be run
+separately, but a local process does not verify the image. The container smoke also does not test
+the production endpoint, NLI admission, or predictive quality.
+
+For a local faithfulness preview, install and cache the judge dependencies, then run:
+
+```bash
+python faithfulness/judge.py --answer /tmp/answer.json --unit units/t4-EXAMPLE-eps-beat
+```
+
+`--unit` names the full unit directory, including its task, card, manifest and corpus. Record the
+judge version and environment with any result. The organizers have
+[announced pending changes to NLI normalization and calibration](https://github.com/Agenthon-2026/track4-analysis-public/issues/1#issuecomment-5534948217);
+an unpinned local preview cannot prove official admission. Public practice units have no resolved
+outcomes, so their smoke results do not measure prediction quality.
+
+## Developer-machine GGUF
+
+`--local-llama` or `T4_LOCAL_LLAMA=1` enables an optional llama.cpp server on loopback for local
+experiments. The submission defaults do not enable it. Setup lives in
+[`baselines/models/README.md`](../models/README.md); neither the server nor GGUF weights are
+included in the submission image. The offline reasoner handles an unavailable local server.
+
+```bash
+python -m baselines.strong_rag_baseline.cli analyze \
+  --local-llama \
+  --task   units/t4-EXAMPLE-eps-beat/task.json \
+  --corpus units/t4-EXAMPLE-eps-beat/corpus \
+  --out    /tmp/answer.json
+```
+
+Runtime retrieval, timeout, retry, seed and token settings are defined in
+[`config.py`](config.py); CLI choices are defined in [`cli.py`](cli.py). The official path reads
+`MODEL_ENDPOINT` and `MODEL_NAME`. Development overrides should not replace the model identity
+provided by the harness.
+
+## Official Submission Categories
+
+Use `api` when calling the house endpoint. The organizer's
+[BYO starter-pack contract](https://github.com/Agenthon-2026/Agenthon2026-public/blob/main/starter-packs/track4/AGENTS.md#bringing-your-own-model-adapter-only-rank--64)
+describes one LoRA adapter, rank at most 64, on the organizer-hosted Nemotron base. The organizer
+extracts the adapter, starts the model server, and supplies the same endpoint contract; the
+participant image does not start vLLM or ship full reader weights. This supersedes the older
+full-weights description still present in `SUBMISSION_CLI.md`.
+
+The [descriptor guide](https://github.com/Agenthon-2026/Agenthon2026-public/blob/main/starter-packs/track4/SUBMISSION-DESCRIPTOR.md)
+also documents a model-free deterministic declaration using the legacy `byo-small` category,
+`access: local`, and an honest `none-deterministic-engine` model entry. Choose it only for a
+submission that makes no model calls. This baseline's default endpoint path is an `api` entry.
 
 ## Design
 
 | Module | Role |
 |---|---|
-| `indexer.py` | One chunk per corpus span; global offsets follow the scorer's join-with-space convention, so every chunk is citation-ready as-is |
-| `retriever.py` | Pure-Python Okapi BM25; docs with missing or post-cutoff `doc_date` dropped before scoring; ties break by `(doc_id, span_start)` |
-| `client.py` | stdlib HTTP client for `/chat/completions` (temp 0, seed, retries) + `MockModelClient` for tests |
-| `prompts.py` | Per-target-type prompt; demands one JSON object with verbatim quotes |
-| `span_finder.py` | Locates quotes as exact substrings (length-preserving curly-quote normalization); never trusts model offsets |
-| `agent.py` | Orchestration; ungroundable quotes fall back to the source chunk's known-good offsets or are dropped; off-vocabulary labels and missing intervals get deterministic fallbacks |
-| `formatter.py` | Final answer assembly + hard self-check (spans resolve, intervals complete, `notes` is an object) |
+| `indexer.py` | Reads corpus text and creates chunks with exact character offsets |
+| `retriever.py` | BM25 retrieval over dated, embargo-eligible documents |
+| `client.py` | HTTP model calls through the configured endpoint, plus a mock client for tests |
+| `prompts.py` | Task-aware structured requests for predictions and verbatim evidence |
+| `schema.py` | Reads target type, allowed labels, units and interval requirements |
+| `quantities.py` | Validates finite numeric targets, units and declared domains |
+| `reasoner.py` | Deterministic fallback that interprets evidence in the task's target context |
+| `agent.py` | Coordinates model inference, evidence validation and fallback |
+| `formatter.py` | Assembles and validates the complete entity roster |
+| `validation.py` | Shared checks for predictions, citations, dates and entity coverage |
+| `local_server.py` | Optional development-only llama.cpp launcher |
 
-**BM25 only, no dense retrieval** (deviation from the Baseline-3 sketch in `../README.md`): the
-eval sandbox's restricted network cannot fetch embedding weights at run time, so a lexical index
-keeps the agent reproducible everywhere. The binding constraint is build-time vendoring: a dense
-index is permitted if its weights are bundled in the image (`byo-small`/`byo-large` in
-`SUBMISSION_CLI.md`), because nothing can be downloaded at run time. The chunking already
-targets the corpus's natural citable units (rendered-table NOTES lines, per-span passages),
-which recovers much of what dense retrieval would add on these corpora.
+Retrieval is lexical; a dense encoder and learned calibration head are not shipped. Predictions
+and intervals must refer to the requested target and its units. Finding a number in a passage
+does not establish that it forecasts the requested quantity.
+The fallback cites verbatim observations; its calculations and uncalibrated interval
+assumptions are recorded separately in `notes.fallback_rationale`.
 
-## Acceptance (tracked, not yet runnable)
+## Verification
 
-- [ ] Schema PASS + embargo PASS on the public practice unit(s)
-- [ ] ≥0.80 citation faithfulness under the pinned judge
-- [ ] Predictive quality strictly above `baseline_agent/`
-- [ ] Runs as-is on `sample-tasks/track4-analysis/` and passes `evaluation/check_submission.py`
-
-All four wait on the staging `$MODEL_ENDPOINT` and the sample-tasks export.
+Run the tests under `tests/` for task generalization, endpoint routing, citation handling and
+offline fallback. Run `../tests/test_submission_image.py` for the entrypoint and container-script
+contracts, then use `smoke_image.sh` on a Docker host for an actual container run. Keep production
+NLI admission and evaluation on independently resolved outcomes as separate measurements; neither
+is claimed by these checks.

@@ -3,14 +3,16 @@
 One prompt per entity. The model sees the entity's tabular features and the
 top-K retrieved excerpts, each tagged with its ``doc_id``, and must return a
 single JSON object. Evidence quotes are required to be verbatim substrings of
-the provided excerpts — the span finder maps them back to exact character
-offsets, and anything it cannot locate is dropped rather than cited loosely.
+the provided excerpts. The agent resolves exact character offsets and rejects
+the entire model prediction if any quote cannot be located.
 """
+
 from __future__ import annotations
 
 import json
 
 from .indexer import Chunk
+from .quantities import TargetSpec
 
 SYSTEM_PROMPT = """\
 You are a careful financial analyst. You predict a target for one entity using ONLY the
@@ -29,25 +31,31 @@ _TARGET_INSTRUCTIONS = {
         '"label" may be null.'
     ),
     "ranking": (
-        'Set "rank" to this entity\'s predicted rank (1 = highest). '
-        '"point_forecast" is the predicted metric value.'
+        'Set "point_forecast" to the predicted target metric on its stated scale. '
+        'Do not emit "rank"; ordering is derived across all entity predictions.'
     ),
 }
 
 
-def build_user_prompt(
-    task: dict, entity: dict, retrieved: list[Chunk]
-) -> str:
-    target = task.get("target", {})
-    target_type = target.get("type", "classification")
+def build_user_prompt(task: dict, entity: dict, retrieved: list[Chunk]) -> str:
+    spec = TargetSpec.from_task(task, entity)
+    kind, labels = spec.kind, spec.labels
     lines: list[str] = []
 
     lines.append(f"TASK: {task.get('prompt', '')}")
     lines.append(f"CUTOFF DATE: {task.get('cutoff_date', '')}")
-    lines.append(f"TARGET: {target.get('name', '')} ({target_type})")
-    if target.get("labels"):
-        lines.append(f"ALLOWED LABELS: {', '.join(target['labels'])}")
-    interval_level = task.get("interval_level", 0.90)
+    lines.append(f"TARGET: {spec.name} ({kind})")
+    lines.append(
+        "TARGET CONTRACT: " + json.dumps(task.get("target", {}), ensure_ascii=False)
+    )
+    lines.append(f"TARGET UNIT: {spec.unit or 'as declared in the task'}")
+    if spec.resolution:
+        lines.append(f"RESOLUTION DATE: {spec.resolution}")
+    if spec.lower is not None or spec.upper is not None:
+        lines.append(f"TARGET DOMAIN: minimum={spec.lower}, maximum={spec.upper}")
+    if labels:
+        lines.append(f"ALLOWED LABELS: {', '.join(labels)}")
+    level = spec.level
 
     lines.append("\nENTITY:")
     for key, value in entity.items():
@@ -63,9 +71,8 @@ def build_user_prompt(
     schema = {
         "label": "string or null",
         "point_forecast": "number or null",
-        "rank": "integer, ranking tasks only",
         "interval": {
-            "level": interval_level,
+            "level": level,
             "lo": "number",
             "hi": "number",
         },
@@ -81,11 +88,15 @@ def build_user_prompt(
         "\nRespond with ONE JSON object of this shape (no markdown fences, no prose):"
     )
     lines.append(json.dumps(schema, indent=2))
-    lines.append(f"\n{_TARGET_INSTRUCTIONS.get(target_type, _TARGET_INSTRUCTIONS['classification'])}")
     lines.append(
-        f'The "interval" must be your {int(interval_level * 100)}% prediction interval for the '
+        f"\n{_TARGET_INSTRUCTIONS.get(kind, _TARGET_INSTRUCTIONS['classification'])}"
+    )
+    lines.append(
+        f'The "interval" must be your {int(level * 100)}% prediction interval for the '
         "numeric target: wide enough that you expect the realized value to fall inside it "
-        f"{int(interval_level * 100)}% of the time, and no wider. "
-        "Give 2 to 4 evidence entries. Each claim must be fully supported by its quote alone."
+        f"{int(level * 100)}% of the time. Its bounds must be finite, ordered, and on the target scale. "
+        "Give 1 to 4 evidence entries. Every quote must support this entity's predicted label, "
+        "target value and interval, including the correct period, units and comparisons. "
+        "A number merely appearing in a quote is not sufficient. Never invent evidence."
     )
     return "\n".join(lines)

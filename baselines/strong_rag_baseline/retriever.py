@@ -11,13 +11,14 @@ Documents whose ``doc_date`` is missing or after the task ``cutoff_date`` are
 dropped BEFORE scoring — post-cutoff evidence never reaches the reasoning step
 (the stale-filing traps target exactly this mistake).
 """
+
 from __future__ import annotations
 
 import math
 import re
 from dataclasses import dataclass
 
-from .indexer import Chunk
+from .indexer import Chunk, dated_on_or_before
 
 _TOKEN = re.compile(r"[a-z0-9]+")
 _K1 = 1.5
@@ -38,11 +39,7 @@ class BM25Index:
     """Okapi BM25 over a fixed chunk list (embargo applied at build time)."""
 
     def __init__(self, chunks: list[Chunk], cutoff_date: str) -> None:
-        self.chunks = [
-            c
-            for c in chunks
-            if c.doc_date is not None and c.doc_date <= cutoff_date
-        ]
+        self.chunks = [c for c in chunks if dated_on_or_before(c.doc_date, cutoff_date)]
         self._chunk_tokens = [_tokens(c.text) for c in self.chunks]
         self._doc_freq: dict[str, int] = {}
         for toks in self._chunk_tokens:
@@ -77,7 +74,5 @@ class BM25Index:
             )
             if score > 0:
                 scored.append(ScoredChunk(chunk=chunk, score=score))
-        scored.sort(
-            key=lambda s: (-s.score, s.chunk.doc_id, s.chunk.span_start)
-        )
+        scored.sort(key=lambda s: (-s.score, s.chunk.doc_id, s.chunk.span_start))
         return scored[:top_k]
