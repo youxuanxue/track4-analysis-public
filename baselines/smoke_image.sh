@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Smoke the submission image contract. Prefers `docker build` + `--network=none`;
-# if Docker is not on the machine, runs the same entrypoint locally and says so.
+# Smoke the real submission image with Docker and the offline fallback.
+# A local CLI run is a separate check and cannot validate a container.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -26,27 +26,25 @@ if grep -Eiq 'torch|transformers|tensorflow|cuda' "$DOCKERFILE"; then
   die "submission image must not bake a GPU/LLM stack"
 fi
 
+command -v docker >/dev/null 2>&1 || die "Docker is unavailable; container validation not performed. Run baselines/analyze.py separately for a local CLI check."
+docker info >/dev/null 2>&1 || die "Docker daemon is unavailable; container validation not performed. Run baselines/analyze.py separately for a local CLI check."
+
 mkdir -p "$OUT_DIR"
+OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 OUT_JSON="$OUT_DIR/answer.json"
 rm -f "$OUT_JSON"
 
-if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-  echo "smoke_image: docker is available — building $IMAGE"
-  docker build -f "$DOCKERFILE" -t "$IMAGE" "$ROOT/baselines"
-  docker run --rm --network=none \
-    -v "$UNIT":/input:ro \
-    -v "$OUT_DIR":/output \
-    "$IMAGE" \
-    analyze --task /input/task.json --corpus /input/corpus --out /output/answer.json
-  echo "smoke_image: docker --network=none run exited 0"
-else
-  echo "smoke_image: docker is not available on this machine; running analyze.py locally"
-  python3 "$ENTRYPOINT" analyze \
-    --task "$UNIT/task.json" \
-    --corpus "$UNIT/corpus" \
-    --out "$OUT_JSON"
-  echo "smoke_image: local entrypoint exited 0 (image was not built here)"
-fi
+echo "smoke_image: building $IMAGE"
+docker build --platform linux/amd64 -f "$DOCKERFILE" -t "$IMAGE" "$ROOT/baselines"
+CONTAINER_ID="$(docker create --platform linux/amd64 --network=none \
+  -v "$UNIT":/input:ro \
+  "$IMAGE" \
+  analyze --task /input/task.json --corpus /input/corpus --out /tmp/answer.json --mock)"
+trap 'docker rm -f "$CONTAINER_ID" >/dev/null' EXIT
+docker start --attach "$CONTAINER_ID"
+# Copy through Docker: host /tmp may not be mounted by Docker's Linux VM.
+docker cp "$CONTAINER_ID:/tmp/answer.json" "$OUT_JSON"
+echo "smoke_image: docker --network=none run exited 0"
 
 python3 - "$OUT_JSON" <<'PY'
 import json, sys
@@ -58,5 +56,6 @@ assert answer.get("task_id") == "t4-EXAMPLE-eps-beat", answer.get("task_id")
 preds = answer.get("entity_predictions") or []
 assert preds, "no entity_predictions"
 assert preds[0].get("claims"), "expected grounded claims"
-print(f"smoke_image: ok — {path} has {len(preds)} entit(y/ies)")
+print(f"smoke_image: container fallback output verified: {path}, {len(preds)} entities")
+print("smoke_image: production endpoint, NLI admission and predictive quality were not tested")
 PY

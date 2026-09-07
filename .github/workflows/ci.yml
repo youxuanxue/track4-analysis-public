@@ -28,7 +28,7 @@ jobs:
           pip install "pytest==9.1.1"
       - name: Card, track, split and canary checks
         run: python .github/validate_units.py analysis --stdlib-only
-      # These 31 tests need neither the toolkit nor transformers, so they belong in the
+      # These tests need neither the toolkit nor transformers, so they belong in the
       # secret-free job. baselines/tests/test_harness_argv.py is the regression net for the
       # `analyze` verb contract (#6) -- until now nothing ever executed it.
       # `python -m pytest`, NOT the bare `pytest` console script: the -m form puts the
@@ -37,6 +37,8 @@ jobs:
       # 'baselines'.
       - name: Baseline + harness-contract tests
         run: python -m pytest baselines -q
+      - name: Submission image (offline container)
+        run: bash baselines/smoke_image.sh "${RUNNER_TEMP}/track4-image-smoke"
 
   lint-type:
     name: Lint + type check (ruff + mypy)
@@ -75,7 +77,7 @@ jobs:
           pip install "pytest==9.1.1"
           pip install "qfbench2-common @ git+https://github.com/Agenthon-2026/Agenthon2026-public.git@v2.3.1#subdirectory=common"
       - name: Ruff lint
-        run: ruff check scoring faithfulness qfbench2_track_analysis
+        run: ruff check baselines scoring faithfulness qfbench2_track_analysis
       - name: Ruff format check
         run: ruff format --check scoring faithfulness qfbench2_track_analysis
       - name: Mypy (strict)

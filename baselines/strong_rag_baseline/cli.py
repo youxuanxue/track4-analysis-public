@@ -12,18 +12,18 @@ optional when running the module by hand::
         --corpus units/t4-EXAMPLE-eps-beat/corpus \
         --out    /tmp/answer.json
 
-Official ``analyze`` is extract-then-predict: it does not start a localhost
-model server and does not call ``$MODEL_ENDPOINT``. Public-dev rows are pinned
-to ``tests/locks/official_gate_d4d0584.json``. ``--local-llama`` (or
-``T4_LOCAL_LLAMA=1``) is a developer-machine opt-in that may start llama.cpp
-on 127.0.0.1 against a gitignored GGUF; it is default OFF and is not the
-submission ENTRYPOINT. ``--mock`` forces the reasoner.
+Official ``analyze`` uses ``MODEL_ENDPOINT`` and ``MODEL_NAME`` when supplied
+by the harness. Missing endpoints and invalid model replies use the grounded
+reasoner. ``--local-llama`` is an explicit developer-machine experiment;
+``--mock`` forces the network-free reasoner.
 """
+
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 from .agent import run_entity, run_entity_grounded
@@ -60,7 +60,8 @@ def run(
     answer = build_answer(task, results, corpus)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
-        json.dumps(answer, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        json.dumps(answer, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
+        encoding="utf-8",
     )
     return answer
 
@@ -76,24 +77,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--mock",
         action="store_true",
-        help="Force extract-then-predict (same as the official analyze default).",
+        help="Run the grounded reasoner without a model call.",
     )
     parser.add_argument(
         "--local-llama",
         action="store_true",
         help=(
             "Developer-machine only: start llama.cpp on 127.0.0.1 against a "
-            "local GGUF. Default OFF; official analyze never sets this."
+            "local GGUF. Default OFF."
         ),
     )
     args = parser.parse_args(argv)
 
     config = Config.from_env()
+    deadline = time.monotonic() + config.unit_timeout_s
     server: LocalLlamaServer | None = None
     client: ModelClient | None = None
-    # Official path: extract-then-predict. --local-llama / T4_LOCAL_LLAMA is opt-in.
     want_local = (not args.mock) and (bool(args.local_llama) or config.local_llama)
-    use_grounded = not want_local
+    use_grounded = bool(args.mock) or not (config.model_endpoint or want_local)
     if want_local:
         server = try_start_local_server(
             host=config.local_host,
@@ -104,8 +105,12 @@ def main(argv: list[str] | None = None) -> int:
         if server is None:
             use_grounded = True
         else:
-            client = HTTPModelClient(config, base_url=server.base_url)
+            client = HTTPModelClient(
+                config, base_url=server.base_url, deadline=deadline
+            )
             use_grounded = False
+    elif not use_grounded:
+        client = HTTPModelClient(config, deadline=deadline)
     try:
         answer = run(
             args.task,
@@ -119,7 +124,13 @@ def main(argv: list[str] | None = None) -> int:
         if server is not None:
             server.stop()
     n_claims = sum(len(e["claims"]) for e in answer["entity_predictions"])
-    mode = "extract-then-predict" if use_grounded else "local-llama"
+    mode = (
+        "extract-then-predict"
+        if use_grounded
+        else "local-llama"
+        if want_local
+        else "house-model"
+    )
     print(
         f"wrote {args.out} — {len(answer['entity_predictions'])} entities, "
         f"{n_claims} grounded claims ({mode})"

@@ -18,6 +18,7 @@ Fail-closed rule (repo rule R3): every patrolled document must be present. If a 
 :data:`DOC_FILES` is deleted or renamed, these guards FAIL — they do not quietly patrol a
 smaller corpus and report green.
 """
+
 from __future__ import annotations
 
 import re
@@ -89,6 +90,7 @@ def _doc_texts() -> list[tuple[str, str]]:
 # a decoration, not a guard. Presence is now its own named check as well as a precondition
 # inside every helper.
 
+
 def test_every_patrolled_document_exists() -> None:
     _require(DOC_FILES, "patrolled document(s)")
     _require(ARTIFACT_FILES, "artifact file(s)")
@@ -134,7 +136,7 @@ def _bindings(text: str, name: str) -> list[tuple[int, str]]:
     """(character offset, numeric token) pairs where the token is bound to ``name``."""
     found: list[tuple[int, str]] = []
     for m in re.finditer(re.escape(name), text):
-        after = re.match(rf"({_GAP_AFTER})({_NUM})", text[m.end():m.end() + 40])
+        after = re.match(rf"({_GAP_AFTER})({_NUM})", text[m.end() : m.end() + 40])
         if after:
             gap = after.group(1)
             # In a FORMULA, a parameter name before `=` binds the formula's RESULT, not the
@@ -144,13 +146,15 @@ def _bindings(text: str, name: str) -> list[tuple[int, str]]:
             # line and this occurrence, the name is on a right-hand side and what follows is a
             # result.
             line_start = text.rfind("\n", 0, m.start()) + 1
-            on_rhs_of_a_formula = "=" in text[line_start:m.start()]
+            on_rhs_of_a_formula = "=" in text[line_start : m.start()]
             # A soft-wrapped continuation ("interval_level|\n= 0.90") is a real binding; an
             # adjacent line that merely starts with a number is not.
             wrapped_ok = "\n" not in gap or "=" in gap or ":" in gap
             if wrapped_ok and not on_rhs_of_a_formula:
                 found.append((m.start(), after.group(2)))
-        before = re.search(rf"({_NUM})(?:{_GAP_BEFORE})\Z", text[max(0, m.start() - 30):m.start()])
+        before = re.search(
+            rf"({_NUM})(?:{_GAP_BEFORE})\Z", text[max(0, m.start() - 30) : m.start()]
+        )
         if before:
             found.append((m.start(), before.group(1)))
     return found
@@ -160,7 +164,9 @@ def _line_of(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
 
 
-def _threshold_offenders(docs: list[tuple[str, str]], allowed: dict[str, set[str]]) -> list[str]:
+def _threshold_offenders(
+    docs: list[tuple[str, str]], allowed: dict[str, set[str]]
+) -> list[str]:
     offenders = []
     for rel, text in docs:
         for name, values in allowed.items():
@@ -216,14 +222,18 @@ def test_composite_weights_quoted_in_prose_keep_the_cards_order() -> None:
     weights = [float(w) for w in _card()["scoring"]["params"]["composite_weights"]]
     offenders = []
     for rel, text in _doc_texts():
-        for m in re.finditer(r"composite_weights[^A-Za-z0-9\[]{0,12}\[([^\]]*)\]", text):
+        for m in re.finditer(
+            r"composite_weights[^A-Za-z0-9\[]{0,12}\[([^\]]*)\]", text
+        ):
             quoted = [float(t) for t in re.findall(_NUM, m.group(1))]
             if quoted != weights:
                 offenders.append(
                     f"{rel}:{_line_of(text, m.start())}: composite_weights quoted as {quoted} "
                     f"(card says {weights}; order is [predictive_quality, interval_coverage])"
                 )
-    assert not offenders, "prose reorders or rewrites composite_weights:\n" + "\n".join(offenders)
+    assert not offenders, "prose reorders or rewrites composite_weights:\n" + "\n".join(
+        offenders
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -283,7 +293,8 @@ def test_paths_in_fenced_code_blocks_exist() -> None:
     offenders = _fenced_path_offenders(_doc_texts())
     assert not offenders, (
         "fenced code blocks reference repo paths that do not exist "
-        "(a reader will copy these and have them fail):\n" + "\n".join(sorted(set(offenders)))
+        "(a reader will copy these and have them fail):\n"
+        + "\n".join(sorted(set(offenders)))
     )
 
 
@@ -328,9 +339,13 @@ _LOCAL_ENV_ALLOWLIST = {
     "QFBENCH_GPU_DEVICE",  # worker-side GPU pin, documented in the GPU caveats
     "TRANSFORMERS_CACHE",  # judge model-cache override, local runs
     "PYTHONPATH",  # smoke-run requirement documented in README
-    "T4_JUDGE_BACKEND", "T4_JUDGE_URL", "T4_JUDGE_TOKEN",  # served-judge knobs (faithfulness/judge.py)
-    "T4_SEED", "T4_TOP_K",  # strong-RAG determinism/retrieval knobs (strong_rag_baseline/config.py)
-    "T4_MODEL_TIMEOUT_S", "T4_MODEL_RETRIES",  # strong-RAG per-call budget (config.py)
+    "T4_JUDGE_BACKEND",
+    "T4_JUDGE_URL",
+    "T4_JUDGE_TOKEN",  # served-judge knobs (faithfulness/judge.py)
+    "T4_SEED",
+    "T4_TOP_K",  # strong-RAG determinism/retrieval knobs (strong_rag_baseline/config.py)
+    "T4_MODEL_TIMEOUT_S",
+    "T4_MODEL_RETRIES",  # strong-RAG per-call budget (config.py)
     "T4_TEMPERATURE",  # strong-RAG sampling temperature (config.py)
     "T4_LOCAL_LLAMA",  # developer-machine GGUF opt-in; official analyze leaves this unset
     "T4_UNIT_DIR",  # guardrails rail's unit selector (guardrails_example/rails/actions.py)
@@ -344,7 +359,9 @@ def _contract_env_vars() -> set[str]:
     _require(["SUBMISSION_CLI.md"], "artifact file(s)")
     text = (REPO / "SUBMISSION_CLI.md").read_text(encoding="utf-8")
     m = re.search(r"Container environment contract.*?(?=\n###)", text, re.S)
-    assert m, "SUBMISSION_CLI.md no longer has a 'Container environment contract' section"
+    assert (
+        m
+    ), "SUBMISSION_CLI.md no longer has a 'Container environment contract' section"
     return set(re.findall(r"`([A-Z][A-Z0-9_]*)`", m.group(0)))
 
 
@@ -355,7 +372,9 @@ def _named_env_vars(text: str) -> set[str]:
 def test_env_vars_in_baseline_readmes_are_in_the_contract() -> None:
     _require(BASELINE_READMES, "baseline README(s)")
     contract = _contract_env_vars()
-    assert "MODEL_ENDPOINT" in contract and "MODEL_NAME" in contract  # sanity on the parse
+    assert (
+        "MODEL_ENDPOINT" in contract and "MODEL_NAME" in contract
+    )  # sanity on the parse
     offenders = []
     for rel in BASELINE_READMES:
         text = (REPO / rel).read_text(encoding="utf-8")
@@ -377,7 +396,11 @@ def test_local_env_allowlist_entries_are_read_by_shipped_code() -> None:
         for p in sorted((REPO / d).rglob("*.py"))
         if "tests" not in p.parts
     )
-    orphans = [v for v in sorted(_LOCAL_ENV_ALLOWLIST) if v.startswith("T4_") and v not in sources]
+    orphans = [
+        v
+        for v in sorted(_LOCAL_ENV_ALLOWLIST)
+        if v.startswith("T4_") and v not in sources
+    ]
     assert not orphans, (
         "these T4_ knobs are allowlisted for the baseline READMEs but no shipped module reads "
         f"them, so the docs promise a knob that does nothing: {orphans}"
@@ -420,7 +443,9 @@ _GPU_ABSENT_RES = [
     re.compile(r"\bwithout\s+(?:a\s+)?GPUs?\b", re.I),
     re.compile(r"\bCPU[-\s]only\b", re.I),
     re.compile(r"\bGPU[-\s]?less\b", re.I),
-    re.compile(r"\bGPUs?\s+(?:is|are)\s+not\s+(?:available|provided|allocated)\b", re.I),
+    re.compile(
+        r"\bGPUs?\s+(?:is|are)\s+not\s+(?:available|provided|allocated)\b", re.I
+    ),
 ]
 _GPU_PRESENT_RES = [
     re.compile(r"gpu\s*[=:]\s*true", re.I),
@@ -439,29 +464,34 @@ def _environment_offenders(docs: list[tuple[str, str]], env: dict) -> list[str]:
                 for m in rx.finditer(line):
                     if int(m.group(1)) != env["cpus"]:
                         offenders.append(
-                            f"{rel}:{i}: {m.group(0).strip()!r} (card says cpus = {env['cpus']})")
+                            f"{rel}:{i}: {m.group(0).strip()!r} (card says cpus = {env['cpus']})"
+                        )
             for rx in _MEM_RES:
                 for m in rx.finditer(line):
                     if f"{m.group(1)}G" != str(env["memory"]).upper().replace("IB", ""):
                         offenders.append(
                             f"{rel}:{i}: {m.group(0).strip()!r} (card says memory = "
-                            f"{env['memory']!r})")
+                            f"{env['memory']!r})"
+                        )
             for rx in _GPU_ABSENT_RES:
                 for m in rx.finditer(line):
                     if env["gpu"]:
                         offenders.append(
                             f"{rel}:{i}: {m.group(0).strip()!r} denies a GPU (card says "
-                            f"gpu = {str(env['gpu']).lower()})")
+                            f"gpu = {str(env['gpu']).lower()})"
+                        )
             for rx in _GPU_PRESENT_RES:
                 for m in rx.finditer(line):
                     if not env["gpu"]:
                         offenders.append(
                             f"{rel}:{i}: {m.group(0).strip()!r} promises a GPU (card says "
-                            f"gpu = {str(env['gpu']).lower()})")
+                            f"gpu = {str(env['gpu']).lower()})"
+                        )
             for m in _NETWORK_RE.finditer(line):
                 if m.group(1).lower() != str(env["network"]).lower():
                     offenders.append(
-                        f"{rel}:{i}: network = {m.group(1)!r} (card says {env['network']!r})")
+                        f"{rel}:{i}: network = {m.group(1)!r} (card says {env['network']!r})"
+                    )
     return offenders
 
 
@@ -489,11 +519,57 @@ def test_guard4_catches_prose_spellings_not_just_key_equals_value() -> None:
         'network = "open"',
     ]
     for drift in drifts:
-        assert _environment_offenders([("<drift>", drift)], env), (
-            f"guard 4 misses the prose spelling {drift!r} — it patrols a spelling nobody writes"
-        )
+        assert _environment_offenders(
+            [("<drift>", drift)], env
+        ), f"guard 4 misses the prose spelling {drift!r} — it patrols a spelling nobody writes"
     faithful = (
         f"The container gets {env['cpus']} vCPUs and {env['memory']}B of RAM; "
         f"network = \"{env['network']}\"."
     )
     assert not _environment_offenders([("<faithful>", faithful)], env)
+
+
+_SUBMISSION_DOCS = [
+    "README.md",
+    "baselines/README.md",
+    "baselines/strong_rag_baseline/README.md",
+]
+_RETIRED_SUBMISSION_CONTRACTS = [
+    re.compile(r"tests/locks/official_gate_[\w.-]+\.json", re.I),
+    re.compile(r"public-dev\s+rows\s+(?:stay\s+locked|are\s+pinned)", re.I),
+    re.compile(
+        r"(?:does\s+\*\*not\*\*|without)\s+call(?:ing)?\s+`\$MODEL_ENDPOINT`", re.I
+    ),
+    re.compile(r"served\s+in-process\s*\(`vllm\.LLM`\)", re.I),
+]
+
+
+def _retired_submission_contracts(text: str) -> list[str]:
+    return [
+        match.group(0)
+        for pattern in _RETIRED_SUBMISSION_CONTRACTS
+        for match in pattern.finditer(text)
+    ]
+
+
+def test_submission_docs_do_not_restore_retired_runtime_contracts() -> None:
+    _require(_SUBMISSION_DOCS, "submission document(s)")
+    for relative in _SUBMISSION_DOCS:
+        offenders = _retired_submission_contracts(
+            (REPO / relative).read_text(encoding="utf-8")
+        )
+        assert not offenders, f"{relative}: retired submission behavior: {offenders}"
+
+
+def test_submission_doc_guard_catches_the_previous_contracts() -> None:
+    for retired in (
+        "Runtime reads tests/locks/official_gate_d4d0584.json.",
+        "Public-dev rows are pinned to a saved answer.",
+        "The agent does **not** call `$MODEL_ENDPOINT`.",
+        "It runs without calling `$MODEL_ENDPOINT`.",
+        "Official BYO is served in-process (`vllm.LLM`).",
+    ):
+        assert _retired_submission_contracts(retired), retired
+    assert not _retired_submission_contracts(
+        "The organizer serves the adapter. The agent calls `$MODEL_ENDPOINT` with `$MODEL_NAME`."
+    )

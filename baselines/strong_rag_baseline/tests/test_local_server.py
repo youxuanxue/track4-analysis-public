@@ -1,4 +1,5 @@
 """Local llama.cpp launcher: find weights, refuse non-loopback, fall back."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -75,23 +76,21 @@ def test_http_client_refuses_a_non_loopback_url() -> None:
         raise AssertionError("non-loopback URL must be refused")
 
 
-def test_config_ignores_model_endpoint(monkeypatch) -> None:
+def test_config_keeps_official_and_local_endpoints_separate(monkeypatch) -> None:
     monkeypatch.setenv("MODEL_ENDPOINT", "http://model:8000/v1")
     cfg = Config.from_env()
-    assert not hasattr(cfg, "model_endpoint")
+    assert cfg.model_endpoint == "http://model:8000/v1"
     assert cfg.local_base_url.startswith("http://127.0.0.1")
     assert "model:8000" not in cfg.local_base_url
 
 
-def test_analyze_ignores_model_endpoint_and_does_not_boot_llama(
+def test_mock_analyze_bypasses_model_endpoint_and_does_not_boot_llama(
     tmp_path, monkeypatch
 ) -> None:
-    """Official analyze is extract-then-predict: no house URL, no localhost server."""
+    """The explicit offline mode performs no network calls or model startup."""
     from baselines.strong_rag_baseline.cli import main
 
-    unit = (
-        Path(__file__).resolve().parents[3] / "units" / "t4-EXAMPLE-eps-beat"
-    )
+    unit = Path(__file__).resolve().parents[3] / "units" / "t4-EXAMPLE-eps-beat"
     opened: list[str] = []
     started = {"n": 0}
 
@@ -113,6 +112,7 @@ def test_analyze_ignores_model_endpoint_and_does_not_boot_llama(
     code = main(
         [
             "analyze",
+            "--mock",
             "--task",
             str(unit / "task.json"),
             "--corpus",
@@ -130,9 +130,7 @@ def test_analyze_ignores_model_endpoint_and_does_not_boot_llama(
 def test_local_llama_flag_attempts_the_opt_in_server(tmp_path, monkeypatch) -> None:
     from baselines.strong_rag_baseline.cli import main
 
-    unit = (
-        Path(__file__).resolve().parents[3] / "units" / "t4-EXAMPLE-eps-beat"
-    )
+    unit = Path(__file__).resolve().parents[3] / "units" / "t4-EXAMPLE-eps-beat"
     started = {"n": 0}
 
     def _none(**_kwargs):

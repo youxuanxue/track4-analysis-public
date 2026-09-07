@@ -1,24 +1,36 @@
-"""Runtime configuration for the strong RAG baseline (env-driven, no files).
+"""Harness model settings and bounded per-unit inference budgets."""
 
-Official analyze is extract-then-predict. ``T4_LOCAL_LLAMA`` is a
-developer-machine opt-in (default off) and is not set by the submission
-image. ``MODEL_NAME`` / ``MODEL_ID`` label a loopback request only when that
-flag is on. ``$MODEL_ENDPOINT`` is never read as a client URL.
-"""
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 
-from .local_server import DEFAULT_ALIAS, DEFAULT_CTX, DEFAULT_HOST, DEFAULT_PORT, DEFAULT_STARTUP_S
+from .local_server import (
+    DEFAULT_ALIAS,
+    DEFAULT_CTX,
+    DEFAULT_HOST,
+    DEFAULT_PORT,
+    DEFAULT_STARTUP_S,
+)
 
 
 def _env_on(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _bounded_env(name: str, default: float, lo: float, hi: float) -> float:
+    try:
+        value = float(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+    return min(hi, max(lo, value)) if math.isfinite(value) else default
+
+
 @dataclass(frozen=True)
 class Config:
+    model_endpoint: str
+    model_token: str | None
     model_id: str
     seed: int  # forwarded to the model AND used for any local tie-breaking
     top_k: int  # retrieved chunks per entity
@@ -26,6 +38,7 @@ class Config:
     max_retries: int
     temperature: float  # fixed at 0 for determinism; env override for experiments
     max_tokens: int
+    unit_timeout_s: float
     local_llama: bool  # developer-machine opt-in; official analyze leaves this false
     local_host: str
     local_port: int
@@ -42,23 +55,30 @@ class Config:
         if host not in {"127.0.0.1", "localhost", "::1"}:
             host = DEFAULT_HOST
         return Config(
-            # MODEL_NAME is what the harness injects (SUBMISSION_CLI.md container
-            # contract); MODEL_ID is a local-dev fallback only. Used only when
-            # --local-llama / T4_LOCAL_LLAMA is on; never sent to $MODEL_ENDPOINT.
+            model_endpoint=os.environ.get("MODEL_ENDPOINT", "").strip().rstrip("/"),
+            model_token=os.environ.get("MODEL_TOKEN") or None,
             model_id=os.environ.get("MODEL_NAME")
             or os.environ.get("MODEL_ID", "")
             or DEFAULT_ALIAS,
-            seed=int(os.environ.get("T4_SEED", "20260731")),
-            top_k=int(os.environ.get("T4_TOP_K", "10")),
-            timeout_s=float(os.environ.get("T4_MODEL_TIMEOUT_S", "45")),
-            max_retries=int(os.environ.get("T4_MODEL_RETRIES", "2")),
-            temperature=float(os.environ.get("T4_TEMPERATURE", "0")),
-            max_tokens=int(os.environ.get("T4_MAX_TOKENS", "384")),
+            seed=int(
+                _bounded_env(
+                    "QFBENCH_SEED",
+                    _bounded_env("T4_SEED", 20260731, 0, 2**32 - 1),
+                    0,
+                    2**32 - 1,
+                )
+            ),
+            top_k=int(_bounded_env("T4_TOP_K", 10, 1, 30)),
+            timeout_s=_bounded_env("T4_MODEL_TIMEOUT_S", 30, 0.1, 60),
+            max_retries=int(_bounded_env("T4_MODEL_RETRIES", 2, 1, 3)),
+            temperature=_bounded_env("T4_TEMPERATURE", 0, 0, 2),
+            max_tokens=int(_bounded_env("T4_MAX_TOKENS", 1024, 64, 4096)),
+            unit_timeout_s=_bounded_env("T4_UNIT_TIMEOUT_S", 480, 1, 480),
             local_llama=_env_on("T4_LOCAL_LLAMA"),
             local_host=host,
-            local_port=int(os.environ.get("T4_LOCAL_PORT", str(DEFAULT_PORT))),
-            local_ctx=int(os.environ.get("T4_LOCAL_CTX", str(DEFAULT_CTX))),
-            local_startup_s=float(
-                os.environ.get("T4_LOCAL_STARTUP_S", str(DEFAULT_STARTUP_S))
+            local_port=int(_bounded_env("T4_LOCAL_PORT", DEFAULT_PORT, 1, 65535)),
+            local_ctx=int(_bounded_env("T4_LOCAL_CTX", DEFAULT_CTX, 512, 32768)),
+            local_startup_s=_bounded_env(
+                "T4_LOCAL_STARTUP_S", DEFAULT_STARTUP_S, 1, 90
             ),
         )

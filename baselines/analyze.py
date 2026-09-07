@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Container entrypoint for the extract-then-predict agent.
+"""Container entrypoint for the house-endpoint agent with an offline fallback.
 
 The harness runs the image as::
 
@@ -9,10 +9,11 @@ The harness runs the image as::
 so ``analyze`` arrives as this script's first positional. Delegates to
 ``strong_rag_baseline.cli:main``, which already declares that verb.
 
-Official analyze is extract-then-predict. It does not start a localhost
-model server and does not read ``$MODEL_ENDPOINT``. A developer-machine
-GGUF experiment path is ``--local-llama`` (default OFF).
+Official analyze reads ``$MODEL_ENDPOINT`` when supplied and falls back to
+the deterministic reasoner if the endpoint or its response is unusable.
+A developer-machine GGUF experiment path is ``--local-llama`` (default OFF).
 """
+
 from __future__ import annotations
 
 import os

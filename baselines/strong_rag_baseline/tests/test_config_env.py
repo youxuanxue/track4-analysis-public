@@ -1,11 +1,5 @@
-"""The reference agent still reads ``MODEL_NAME`` (finding H6, prose-drift sweep
-2026-08-27) as the ``model`` string posted to the *local* llama.cpp server.
+"""Harness model and seed settings take precedence over developer defaults."""
 
-SUBMISSION_CLI.md's container-environment contract injects ``MODEL_NAME``. This
-agent never sends that id to ``$MODEL_ENDPOINT`` — it only labels the loopback
-``/v1/chat/completions`` body. ``MODEL_ID`` survives as a local-dev fallback;
-``MODEL_NAME`` wins when both are set.
-"""
 from __future__ import annotations
 
 import sys
@@ -17,7 +11,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from strong_rag_baseline.config import Config  # noqa: E402
 
-_ENV_VARS = ("MODEL_NAME", "MODEL_ID", "MODEL_ENDPOINT", "MODEL_TOKEN")
+_ENV_VARS = (
+    "MODEL_NAME",
+    "MODEL_ID",
+    "MODEL_ENDPOINT",
+    "MODEL_TOKEN",
+    "QFBENCH_SEED",
+    "T4_SEED",
+    "T4_LOCAL_LLAMA",
+    "T4_UNIT_TIMEOUT_S",
+    "T4_MODEL_TIMEOUT_S",
+    "T4_MODEL_RETRIES",
+    "T4_TOP_K",
+    "T4_MAX_TOKENS",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -42,3 +49,25 @@ def test_model_id_survives_as_local_dev_fallback(
 ) -> None:
     monkeypatch.setenv("MODEL_ID", "qwen2.5:7b")
     assert Config.from_env().model_id == "qwen2.5:7b"
+
+
+def test_harness_endpoint_and_seed_override_developer_settings(monkeypatch):
+    monkeypatch.setenv("MODEL_ENDPOINT", "https://house.example/v1/")
+    monkeypatch.setenv("QFBENCH_SEED", "1234")
+    monkeypatch.setenv("T4_SEED", "77")
+    config = Config.from_env()
+    assert config.model_endpoint == "https://house.example/v1"
+    assert config.seed == 1234
+    assert config.local_llama is False
+
+
+def test_invalid_budget_settings_cannot_disable_deadlines(monkeypatch):
+    monkeypatch.setenv("T4_UNIT_TIMEOUT_S", "inf")
+    monkeypatch.setenv("T4_MODEL_TIMEOUT_S", "nan")
+    monkeypatch.setenv("T4_MODEL_RETRIES", "99999")
+    monkeypatch.setenv("T4_TOP_K", "nonsense")
+    config = Config.from_env()
+    assert 0 < config.unit_timeout_s <= 480
+    assert 0 < config.timeout_s <= 60
+    assert config.max_retries == 3
+    assert config.top_k == 10

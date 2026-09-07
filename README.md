@@ -181,13 +181,20 @@ the harness (`g2`).
    (`$MODEL_ENDPOINT`); your contribution is the prompts, harness, system prompts, and agents.
    No participant API keys are injected and none exist (policy 2026-08-04) — the house endpoint
    is the only reachable model.
-2. **BYO mode** (`category = "byo-large"` for 80GB-class GPU images, `"byo-small"` for ≤~8B
-   models on CPU or small GPU): you bundle your own model weights in-image. BYO entries may
-   *also* call APIs as in mode 1.
+2. **BYO mode**: the organizer's
+   [starter-pack contract](https://github.com/Agenthon-2026/Agenthon2026-public/blob/main/starter-packs/track4/AGENTS.md#bringing-your-own-model-adapter-only-rank--64)
+   specifies one LoRA adapter with rank at most 64 on the organizer-hosted Nemotron base.
+   The organizer extracts the adapter and starts its server; your code calls the supplied
+   endpoint and model name. Do not ship full reader weights or start a participant model server.
+   This differs from the older full-weights description in `SUBMISSION_CLI.md`.
+
+The [descriptor guide](https://github.com/Agenthon-2026/Agenthon2026-public/blob/main/starter-packs/track4/SUBMISSION-DESCRIPTOR.md)
+also permits a model-free deterministic declaration using legacy `byo-small`, `access: local`,
+and an honest `none-deterministic-engine` entry. An agent that calls the house endpoint uses `api`.
 
 At scoring time the container sees: `HTTP_PROXY`/`HTTPS_PROXY` pointing at the audited proxy,
-`MODEL_ENDPOINT` pointing at the organizer-hosted OpenAI-compatible endpoint (e.g.
-`http://model:8000/v1`) when available, and `QFBENCH_NETWORK=restricted`. Local smoke runs
+`MODEL_ENDPOINT` pointing at the organizer-hosted OpenAI-compatible endpoint and `MODEL_NAME`
+naming the served model when available, and `QFBENCH_NETWORK=restricted`. Local smoke runs
 without the eval network fall back to `--network=none`, so your agent must degrade gracefully
 (still emit a schema-valid `answer.json`) when model APIs are unreachable.
 
@@ -196,11 +203,9 @@ every model must be disclosed in submission metadata, and temperature/seed pinne
 supports it. API-based entries are verified statistically (bootstrap-CI overlap on rerun); BYO
 entries bit-reproducibly.
 
-**Budget (PROVISIONAL — not final).** A uniform per-unit model-API budget applies to every
-submission (provisional figure: 1,000,000 input + 100,000 output tokens per unit), enforced via
-proxy logs and spot audit. This figure has not been finalised, so treat it as a planning number and
-not a contract: build so that a change to it does not invalidate your approach. The final figure
-will be announced here before any scored run, and `SUBMISSION_CLI.md` carries the same statement.
+**Budget.** The organizer's [current CLI contract](https://github.com/Agenthon-2026/track4-analysis-public/blob/main/SUBMISSION_CLI.md#rules-for-model-api-use-restricted-mode)
+records the final per-unit model-API allowance, ruled on 2026-08-28. Read that contract when
+setting token limits; the older provisional wording in a local checkout is stale.
 
 **Leaderboard.** One board; every entry is tagged with its category, models used (pinned
 versions), and training cutoffs.
@@ -258,9 +263,10 @@ four are inputs to the gate this is previewing: the roster and the target schema
 `manifest.json` declares. Without them the check would have nothing to score against and would
 fail closed.
 
-The check runs the same DeBERTa NLI ensemble (two models, averaged entailment probability) and the
-same shared scoring primitives the official scorer uses. Per **roster entity** — not per sentence
-you wrote — it:
+The check uses the public DeBERTa NLI ensemble and shared scoring primitives. It is a local
+preview: the organizers have [announced pending normalization and calibration changes](https://github.com/Agenthon-2026/track4-analysis-public/issues/1#issuecomment-5534948217),
+and production equivalence requires the published judge version and environment. Per
+**roster entity**, rather than per sentence you wrote, it:
 
 1. Aligns your `entity_predictions[]` against the unit's entity roster. A missing, duplicated or
    unknown entity fails here, exactly as it fails the gate.
@@ -311,12 +317,15 @@ that at least 80% of the roster's predictions are supported (`faithfulness_thres
 2. **TabPFN + gradient-boosting (text-blind) — specification only, not yet released.** The
    text-blind tabular floor; described in `baselines/README.md` but no code is shipped.
 3. **Strong retrieval-augmented LLM-over-rows (`strong_rag_baseline/`, scaffold shipped)** —
-   official `analyze` is extract-then-predict (`--mock` is the same path). A
-   developer-machine GGUF experiment is `--local-llama` (default OFF) and is not
-   the submission ENTRYPOINT. BM25 span-chunk retrieval with exact-span citation
-   grounding. It deviates from the original sketch: retrieval is lexical only —
-   no dense index and no calibration head — because the restricted evaluation
-   network cannot fetch embedding weights. See `baselines/README.md`.
+   `analyze` uses the official `$MODEL_ENDPOINT` and `$MODEL_NAME` by default. With no endpoint,
+   or with `--mock`, it runs a deterministic offline fallback. Every task follows the same
+   target-aware prediction and exact-span citation path. A local GGUF experiment is available
+   through `--local-llama`, disabled by default. Retrieval is BM25 only; a dense index and learned
+   calibration head are not shipped. See `baselines/strong_rag_baseline/README.md`.
+
+The container check is `bash baselines/smoke_image.sh /tmp/t4-out`. It requires a working Docker
+daemon and fails when container validation cannot run. Its offline result establishes neither
+official NLI admission nor predictive quality; public practice units have no resolved outcomes.
 
 To run the shipped minimal baseline on the worked example, from the root of this repository:
 
@@ -364,8 +373,11 @@ calibration leg: the coverage term is dropped and `composite = w_acc × predicti
 quantity, put that numeric — in the prompt's units — in `point_forecast` / `interval`; an
 interval on a probability never covers a dollar `y`.
 
-Ineligible submissions (failed faithfulness gate or embargo violation) receive `score = None`
-and do not appear on the primary leaderboard.
+Inadmissible units, including failed faithfulness or embargo checks, receive `W = -0.27` and stay
+in the aggregate denominator, as confirmed by the
+[organizer's correction](https://github.com/Agenthon-2026/track4-analysis-public/issues/1#issuecomment-5534948217).
+The `score = None` returned by public smoke means no resolved outcome was available; it is not
+the treatment of an inadmissible unit in a scored run.
 
 ---
 
@@ -435,8 +447,8 @@ baseline emits a fixed-band interval, which is a floor to beat, not a starting p
 
 **Firewall.** Your agent runs on a restricted network: no open internet, egress only through the
 organizer's audited proxy to the organizer-hosted `$MODEL_ENDPOINT` and nothing else —
-vendor model APIs are refused. Everything else — bundled model weights (BYO categories), retrieval indices,
-and resources — must be baked into the Docker image or available from the read-only corpus
+vendor model APIs are refused. Dependencies, retrieval indices,
+and permitted resources must be baked into the Docker image or available from the read-only corpus
 mount. Vendor-side tools (web search, code execution, retrieval) must be disabled in API calls.
 Test locally with `docker run --network=none` before submitting to confirm your agent has no
 open-internet dependency and degrades gracefully when model APIs are unreachable.
