@@ -134,15 +134,13 @@ def collect_windows(
             boundaries = [paragraph.start()]
             boundaries.extend(
                 paragraph.start() + match.end()
-                for match in re.finditer(
-                    r"(?<=[.!?;])\s+(?=[A-Z])", paragraph.group()
-                )
+                for match in re.finditer(r"(?<=[.!?;])\s+(?=[A-Z])", paragraph.group())
             )
             boundaries.append(paragraph.end())
             for start, end in zip(boundaries, boundaries[1:]):
                 sentence = text[start:end]
                 own_mention = _alias_hit(sentence, aliases)
-                other_mention = _alias_hit(sentence, other_aliases)
+                other_mention = _other_entity_hit(sentence, aliases, other_aliases)
                 if other_mention and not own_mention:
                     continue
                 if not (owned or doc_match or own_mention):
@@ -157,6 +155,25 @@ def collect_windows(
                             Window(doc_id, date, pos, last, snippet, other_mention)
                         )
     return windows
+
+
+def _other_entity_hit(text: str, aliases: Iterable[str], others: Iterable[str]) -> bool:
+    """A nested name (food within core CPI) is not a separate entity mention."""
+    normalized = text.lower().replace("_", " ")
+    own_spans = [
+        match.span()
+        for alias in aliases
+        if len(alias) > 1
+        for match in re.finditer(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", normalized)
+    ]
+    return any(
+        not any(
+            start <= match.start() and match.end() <= end for start, end in own_spans
+        )
+        for alias in others
+        if len(alias) > 1
+        for match in re.finditer(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", normalized)
+    )
 
 
 def _metric(spec: TargetSpec) -> str:

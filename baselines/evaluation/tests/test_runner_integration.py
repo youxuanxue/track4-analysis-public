@@ -50,6 +50,29 @@ def test_public_runner_executes_real_baseline_without_scores(tmp_path):
     assert report["by_split"]["public-dev"]["runs"] == 1
 
 
+def test_model_ledger_uses_prediction_budget(tmp_path, monkeypatch):
+    unit = build_unit(tmp_path / "inputs")
+    monkeypatch.setenv("T4_TOP_K", "1")
+    from baselines.strong_rag_baseline import evidence
+
+    original = evidence.prepare_evidence
+    budgets = []
+
+    def capture(*args, **kwargs):
+        budgets.append(kwargs["top_k"])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(evidence, "prepare_evidence", capture)
+    model = runner.evidence_ledger(unit, model=True)
+    assert model["used_for_prediction"] is True
+    assert budgets == [1] * len(model["entities"])
+    assert all(len(entity["records"]) <= 1 for entity in model["entities"])
+    budgets.clear()
+    grounded = runner.evidence_ledger(unit)
+    assert grounded["used_for_prediction"] is False
+    assert budgets == [8] * len(grounded["entities"])
+
+
 @pytest.mark.parametrize("exit_code", [0, 1, 124])
 def test_truth_read_after_prediction_and_failed_execution_cannot_score_answer(
     tmp_path, monkeypatch, exit_code

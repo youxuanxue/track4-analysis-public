@@ -30,6 +30,12 @@ class HTTPModelClient:
             self.deadline = time.monotonic() + self.config.unit_timeout_s
 
     def complete(self, system: str, user: str) -> str:
+        return self._complete(system, user)
+
+    def complete_json(self, system: str, user: str, schema: dict) -> str:
+        return self._complete(system, user, schema)
+
+    def _complete(self, system: str, user: str, schema: dict | None = None) -> str:
         endpoint = (self.base_url or self.config.model_endpoint).rstrip("/")
         url = urlsplit(endpoint)
         official = (
@@ -58,6 +64,15 @@ class HTTPModelClient:
             "seed": self.config.seed,
             "max_tokens": self.config.max_tokens,
         }
+        if schema is not None:
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "entity_prediction",
+                    "strict": True,
+                    "schema": schema,
+                },
+            }
         headers = {"Content-Type": "application/json"}
         if official and self.config.model_token:
             headers["Authorization"] = f"Bearer {self.config.model_token}"
@@ -92,6 +107,11 @@ class HTTPModelClient:
                         parts.append(part)
                     data = b"".join(parts)
                 body = json.loads(data.decode("utf-8"))
+                if body["choices"][0].get("finish_reason") in {
+                    "length",
+                    "content_filter",
+                }:
+                    raise ValueError("model response did not complete")
                 content = body["choices"][0]["message"]["content"]
                 if not isinstance(content, str) or not content.strip():
                     raise ValueError("model response has no text content")

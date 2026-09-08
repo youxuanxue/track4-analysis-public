@@ -1,17 +1,20 @@
-"""Optional entity-bound retrieval with exact, inspectable source annotations.
+"""Entity-bound model retrieval with exact, inspectable source annotations.
 
 Annotations are lexical mentions, not a table parser or inferred relationships.
 In particular, a quantity never inherits the requested metric, fiscal period, or
-unit. The caller can compare this retrieval strategy with the existing baseline.
+unit. Explicit series columns retain their source table and column identity.
 """
 
 from __future__ import annotations
 
+import csv
+import hashlib
+import json
 import re
 from dataclasses import dataclass
 from typing import Any
 
-from .indexer import Chunk, IndexedCorpus, calendar_date
+from .indexer import Chunk, IndexedCorpus, calendar_date, dated_on_or_before
 from .quantities import finite_number
 from .reasoner import _alias_hit, _entity_aliases, collect_windows
 from .retriever import BM25Index
@@ -41,10 +44,33 @@ _NUMBER = re.compile(
 )
 
 
+_ADMINISTRATIVE = re.compile(
+    r"(?:the exhibits listed in the accompanying exhibit index are filed as "
+    r"a part of this report[.]?|"
+    r"(?:table of contents|exhibit index|signatures)[\s.\d-]*|"
+    r"item\s+\d+[a-z]?[.\s-]+(?:exhibits|signatures|financial statement schedules)[.\s]*)",
+    re.I,
+)
+
+
 @dataclass(frozen=True)
 class EvidencePacket:
     chunks: list[Chunk]
     ledger: dict[str, Any]
+
+
+def evidence_references(chunks: list[Chunk]) -> dict[str, Chunk]:
+    """Bind identifiers to exact source bytes and offsets, not retrieval positions."""
+    return {
+        "E"
+        + hashlib.sha256(
+            json.dumps(
+                [c.doc_id, c.doc_date, c.span_start, c.span_end, c.text],
+                ensure_ascii=False,
+            ).encode()
+        ).hexdigest()[:16]: c
+        for c in chunks
+    }
 
 
 def evidence_queries(task: dict, entity: dict) -> list[str]:
@@ -165,8 +191,20 @@ def prepare_evidence(
         roster=roster,
     )
     candidates: dict[tuple[str, int, int], Chunk] = {}
+    series = str(entity.get("series_fred") or entity.get("series_id") or "")
+    tables = (
+        _series_tables(corpus, entity, series, cutoff, max_span_chars) if series else []
+    )
+    table_keys = set()
+    for chunk in tables:
+        key = (chunk.doc_id, chunk.span_start, chunk.span_end)
+        candidates[key] = chunk
+        table_keys.add(key)
     for window in windows:
         if window.entity_ambiguous:
+            continue
+        # A series header is useful only together with its dated data rows.
+        if series and _series_header(window.text, series):
             continue
         text = corpus.doc_texts[window.doc_id]
         chunk = Chunk(
@@ -183,7 +221,7 @@ def prepare_evidence(
             if boundary > start:
                 end = boundary
         snippet = text[start:end]
-        if not snippet.strip():
+        if not snippet.strip() or _ADMINISTRATIVE.fullmatch(snippet.strip()):
             continue
         # Cropping cannot turn a text-bound excerpt into an unbound excerpt.
         if _alias_hit(window.text, aliases) and not _alias_hit(snippet, aliases):
@@ -223,7 +261,9 @@ def prepare_evidence(
         used_chars += len(chunk.text)
         matched = [alias for alias in aliases if _alias_hit(chunk.text, [alias])]
         provenance = (
-            "text_alias"
+            "series_column"
+            if key in table_keys
+            else "text_alias"
             if matched
             else "document_cik"
             if cik and cik in chunk.doc_id
@@ -236,7 +276,11 @@ def prepare_evidence(
                 "span_start": chunk.span_start,
                 "span_end": chunk.span_end,
                 "text": chunk.text,
-                "binding": {"source": provenance, "aliases": matched},
+                "binding": {
+                    "source": provenance,
+                    "aliases": matched,
+                    **({"column": series} if key in table_keys else {}),
+                },
                 "query_ids": query_hits[key],
                 "metrics": _mentions(_METRIC, chunk),
                 "periods": _mentions(_PERIOD, chunk),
@@ -261,3 +305,50 @@ def prepare_evidence(
         "records": records,
     }
     return EvidencePacket(chunks=selected, ledger=ledger)
+
+
+def _series_header(text: str, series: str) -> list[str]:
+    cells = next(csv.reader([text], delimiter="|", skipinitialspace=True))
+    cells = [cell.strip() for cell in cells]
+    return (
+        cells
+        if cells and cells[0].lower() == "date" and cells.count(series) == 1
+        else []
+    )
+
+
+def _series_tables(
+    corpus: IndexedCorpus, entity: dict, series: str, cutoff: str, max_chars: int
+) -> list[Chunk]:
+    """Retain bounded dated pipe tables with an exact, unique series column."""
+    result = []
+    cik = str(entity.get("cik") or "").zfill(10) if entity.get("cik") else ""
+    for doc_id, text in corpus.doc_texts.items():
+        if cik and "EDGAR" in doc_id.upper() and cik not in doc_id:
+            continue
+        date = corpus.doc_dates.get(doc_id)
+        if not dated_on_or_before(date, cutoff):
+            continue
+        lines = list(re.finditer(r"[^\n]+", text))
+        for i, line in enumerate(lines):
+            header = _series_header(line.group(), series)
+            if not header:
+                continue
+            end = line.end()
+            for row in lines[i + 1 :]:
+                cells = next(
+                    csv.reader([row.group()], delimiter="|", skipinitialspace=True)
+                )
+                cells = [cell.strip() for cell in cells]
+                if len(cells) != len(header) or not dated_on_or_before(
+                    cells[0], cutoff
+                ):
+                    break
+                if row.end() - line.start() > max_chars:
+                    break
+                end = row.end()
+            if end > line.end():
+                result.append(
+                    Chunk(doc_id, date, line.start(), end, text[line.start() : end])
+                )
+    return result

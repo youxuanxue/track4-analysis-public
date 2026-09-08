@@ -22,7 +22,9 @@ python -m baselines.evaluation \
 The output directory must be new and outside all worktrees of this public repository.
 It contains a Markdown report, a machine-readable report, and per-run answers,
 diagnostics, canonical prediction hypotheses, and evidence candidate ledgers.
-The evidence ledger is diagnostic only: it does not change the baseline's predictions.
+In model mode, the evidence ledger records the same retrieval strategy and configured budget
+used for predictions. In grounded mode it is a separate retrieval diagnostic. Its
+`used_for_prediction` field distinguishes these cases; it does not assert semantic support.
 
 Use `--image` to run an already-built baseline image through Docker with no network.
 The tool resolves its immutable image ID before running; build the image from the same

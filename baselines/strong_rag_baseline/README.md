@@ -97,8 +97,9 @@ submission that makes no model calls. This baseline's default endpoint path is a
 |---|---|
 | `indexer.py` | Reads corpus text and creates chunks with exact character offsets |
 | `retriever.py` | BM25 retrieval over dated, embargo-eligible documents |
+| `evidence.py` | Entity-bound excerpts, explicit series-column tables, evidence IDs and provenance ledger |
 | `client.py` | HTTP model calls through the configured endpoint, plus a mock client for tests |
-| `prompts.py` | Task-aware structured requests for predictions and verbatim evidence |
+| `prompts.py` | Task-aware JSON schemas and requests for predictions with evidence IDs |
 | `schema.py` | Reads target type, allowed labels, units and interval requirements |
 | `quantities.py` | Validates finite numeric targets, units and declared domains |
 | `reasoner.py` | Deterministic fallback that interprets evidence in the task's target context |
@@ -110,6 +111,14 @@ submission that makes no model calls. This baseline's default endpoint path is a
 Retrieval is lexical; a dense encoder and learned calibration head are not shipped. Predictions
 and intervals must refer to the requested target and its units. Finding a number in a passage
 does not establish that it forecasts the requested quantity.
+The model path uses the bounded evidence packet from `evidence.py`. It selects source-bound IDs;
+the program restores the original text and offsets instead of asking the model to copy quotes.
+An explicit series-column table retains its header and dated rows; other columns are context,
+not values attributed to the requested series. Numeric annotations remain unlinked mentions.
+The HTTP client requests a strict JSON schema. Unsupported schemas, incomplete responses,
+invalid predictions or unknown IDs trigger an explicit fallback, without unconstrained retries.
+Custom clients may retain the original `complete` interface and exact-quote response format;
+both formats undergo citation and prediction validation. These checks do not establish entailment.
 The fallback cites verbatim observations; its calculations and uncalibrated interval
 assumptions are recorded separately in `notes.fallback_rationale`.
 
