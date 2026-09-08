@@ -114,7 +114,7 @@ does not establish that it forecasts the requested quantity.
 The model path uses the bounded evidence packet from `evidence.py`. It selects source-bound IDs;
 the program restores the original text and offsets instead of asking the model to copy quotes.
 Once candidates are entity-bound, metric queries avoid repeating the entity name; bare names
-and short headings without numbers or a factual predicate are excluded from model evidence.
+and recognized administrative headings are excluded without requiring short facts to match a verb list.
 An explicit series-column table retains its header and dated rows; other columns are context,
 not values attributed to the requested series. Numeric annotations remain unlinked mentions.
 The HTTP client requests a strict JSON schema. Unsupported schemas, incomplete responses,

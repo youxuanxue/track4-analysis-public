@@ -85,6 +85,69 @@ def test_series_column_table_retains_header_dates_and_exact_offsets():
     assert not prepare_evidence(task, entity, index, corpus, max_span_chars=20).chunks
 
 
+@pytest.mark.parametrize("position", ["before", "after_header"])
+@pytest.mark.parametrize("noise", ["x" * 140_000, '"unterminated table field'])
+def test_table_parser_skips_oversized_or_malformed_rows_without_losing_valid_evidence(
+    position, noise
+):
+    entity = {"entity_id": "BOND10", "series_fred": "RATE10"}
+    task = {
+        "cutoff_date": "2024-01-31",
+        "entities": [entity],
+        "target": {"type": "regression", "name": "yield"},
+    }
+    valid = "date | RATE10\n2024-01-30 | 4.2"
+    prefix = "" if position == "before" else "date | RATE10\n"
+    text = prefix + noise + "\n" + valid
+    chunk = Chunk("rates", "2024-01-31", 0, len(text), text)
+    corpus = IndexedCorpus([chunk], {"rates": text}, {"rates": chunk.doc_date})
+    selected = Chunk("rates", chunk.doc_date, len(text) - len(valid), len(text), valid)
+    reply = {
+        "point_forecast": 4.2,
+        "interval": {"level": 0.9, "lo": 4, "hi": 5},
+        "evidence": [
+            {
+                "evidence_id": next(iter(evidence_references([selected]))),
+                "claim": "RATE10 was 4.2.",
+            }
+        ],
+    }
+    result = run_entity(
+        task,
+        entity,
+        BM25Index([chunk], task["cutoff_date"]),
+        corpus,
+        MockModelClient(json.dumps(reply)),
+        4,
+    )
+    assert result.source == "model"
+    [claim] = result.prediction["claims"]
+    assert text[claim["span_start"] : claim["span_end"]] == valid
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Acme cannot repay its debt.",
+        "Acme faces bankruptcy.",
+        "Acme defaults on its debt.",
+        "Acme faces bankruptcy",
+        "Cannot repay debt.",
+    ],
+)
+def test_short_credit_facts_survive_heading_filter(text):
+    task, entity, _, _ = fixture()
+    entity["cik"] = "123"
+    task["target"]["name"] = "debt_repayment"
+    doc_id = "EDGAR_0000000123"
+    chunk = Chunk(doc_id, "2024-01-01", 0, len(text), text)
+    corpus = IndexedCorpus([chunk], {doc_id: text}, {doc_id: chunk.doc_date})
+    packet = prepare_evidence(
+        task, entity, BM25Index([chunk], task["cutoff_date"]), corpus
+    )
+    assert [c.text for c in packet.chunks] == [text]
+
+
 def test_identifiers_restore_quotes_without_model_copying_or_escaping():
     task, entity, corpus, reply = fixture()
 

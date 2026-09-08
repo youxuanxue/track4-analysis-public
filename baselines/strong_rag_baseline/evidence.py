@@ -48,11 +48,9 @@ _ADMINISTRATIVE = re.compile(
     r"(?:the exhibits listed in the accompanying exhibit index are filed as "
     r"a part of this report[.]?|"
     r"(?:table of contents|exhibit index|signatures)[\s.\d-]*|"
-    r"item\s+\d+[a-z]?[.\s-]+(?:exhibits|signatures|financial statement schedules)[.\s]*)",
-    re.I,
-)
-_PREDICATE = re.compile(
-    r"\b(?:is|are|was|were|has|have|had|will|would|can|could|may|might|must|shall|[a-z]{3,}ed)\b",
+    r"item\s+\d+[a-z]?[.\s-]+(?:exhibits|signatures|financial statement schedules)[.\s]*|"
+    r"(?:credit agreements?|revolving credit facilit(?:y|ies)|line of credit borrowings|"
+    r"outstanding letters of credit|credit risk|risk factors|liquidity and capital resources)[.:]?)",
     re.I,
 )
 
@@ -211,7 +209,7 @@ def prepare_evidence(
         if window.entity_ambiguous:
             continue
         # A series header is useful only together with its dated data rows.
-        if series and _series_header(window.text, series):
+        if series and _series_header(window.text, series, max_span_chars):
             continue
         text = corpus.doc_texts[window.doc_id]
         chunk = Chunk(
@@ -231,12 +229,6 @@ def prepare_evidence(
         if not snippet.strip() or _ADMINISTRATIVE.fullmatch(snippet.strip()):
             continue
         if tuple(re.findall(r"\w+", snippet.lower())) in alias_tokens:
-            continue
-        if (
-            len(re.findall(r"\w+", snippet)) < 8
-            and not _NUMBER.search(snippet)
-            and not _PREDICATE.search(snippet)
-        ):
             continue
         # Cropping cannot turn a text-bound excerpt into an unbound excerpt.
         if _alias_hit(window.text, aliases) and not _alias_hit(snippet, aliases):
@@ -322,9 +314,22 @@ def prepare_evidence(
     return EvidencePacket(chunks=selected, ledger=ledger)
 
 
-def _series_header(text: str, series: str) -> list[str]:
-    cells = next(csv.reader([text], delimiter="|", skipinitialspace=True))
-    cells = [cell.strip() for cell in cells]
+def _pipe_cells(text: str, max_chars: int) -> list[str]:
+    if len(text) > max_chars:
+        return []
+    try:
+        cells = next(
+            csv.reader([text], delimiter="|", skipinitialspace=True, strict=True)
+        )
+    except csv.Error:
+        # Optional table extraction must not abort retrieval on ordinary prose
+        # or an unsupported row, including the parser's own field-size limit.
+        return []
+    return [cell.strip() for cell in cells]
+
+
+def _series_header(text: str, series: str, max_chars: int) -> list[str]:
+    cells = _pipe_cells(text, max_chars)
     return (
         cells
         if cells and cells[0].lower() == "date" and cells.count(series) == 1
@@ -346,20 +351,17 @@ def _series_tables(
             continue
         lines = list(re.finditer(r"[^\n]+", text))
         for i, line in enumerate(lines):
-            header = _series_header(line.group(), series)
+            header = _series_header(line.group(), series, max_chars)
             if not header:
                 continue
             end = line.end()
             for row in lines[i + 1 :]:
-                cells = next(
-                    csv.reader([row.group()], delimiter="|", skipinitialspace=True)
+                cells = _pipe_cells(
+                    row.group(), max_chars - (row.start() - line.start())
                 )
-                cells = [cell.strip() for cell in cells]
                 if len(cells) != len(header) or not dated_on_or_before(
                     cells[0], cutoff
                 ):
-                    break
-                if row.end() - line.start() > max_chars:
                     break
                 end = row.end()
             if end > line.end():
