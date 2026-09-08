@@ -110,7 +110,9 @@ def _hypothesis_records(ctx: dict[str, Any]) -> list[dict[str, Any]]:
     return records
 
 
-def _numeric_errors(ctx: dict[str, Any], realized: dict | None) -> dict | None:
+def _numeric_errors(
+    ctx: dict[str, Any], realized: dict[str, Any] | None
+) -> dict[str, Any] | None:
     """Keep raw errors visible when official normalized quality clips to zero."""
     from math import isfinite
     from qfbench2_track_analysis.scoring import _true_vectors
