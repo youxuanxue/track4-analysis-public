@@ -11,11 +11,33 @@ from baselines.strong_rag_baseline.agent import run_entity_grounded
 from baselines.strong_rag_baseline.cli import run
 from baselines.strong_rag_baseline.indexer import build_index
 from baselines.strong_rag_baseline.quantities import TargetSpec
-from baselines.strong_rag_baseline.reasoner import extract_numbers, number_in_text
+from baselines.strong_rag_baseline.reasoner import (
+    _label,
+    extract_numbers,
+    number_in_text,
+)
 from baselines.strong_rag_baseline.retriever import BM25Index
 
 REPO = Path(__file__).resolve().parents[3]
 UNITS = sorted(p for p in (REPO / "units").iterdir() if (p / "task.json").is_file())
+
+
+@pytest.mark.parametrize("baseline", [0, -2.5, 4.25])
+def test_equal_numeric_comparison_uses_flat_when_it_is_legal(baseline):
+    task = {
+        "target": {
+            "name": "revision",
+            "type": "classification",
+            "labels": ["up", "down", "flat"],
+        }
+    }
+    entity = {"latest_precutoff_estimate": baseline}
+    spec = TargetSpec.from_task(task, entity)
+    assert _label(spec, entity, baseline, "") == "flat"
+    assert _label(spec, entity, baseline + 1, "") == "up"
+    assert _label(spec, entity, baseline - 1, "") == "down"
+    task["target"]["labels"] = ["up", "down"]
+    assert _label(TargetSpec.from_task(task, entity), entity, baseline, "") == "down"
 
 
 @pytest.mark.parametrize("unit", UNITS, ids=[p.name for p in UNITS])

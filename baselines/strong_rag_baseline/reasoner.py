@@ -397,6 +397,8 @@ def _label(spec: TargetSpec, entity: dict[str, Any], point: float, text: str) ->
             "prior_year_q_eps", entity.get("latest_precutoff_estimate", 0)
         )
         if finite_number(baseline):
+            if point == baseline and "flat" in labels:
+                return "flat"
             return "up" if point > baseline else "down"
     matches = [
         label

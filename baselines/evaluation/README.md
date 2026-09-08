@@ -147,3 +147,39 @@ a small single-domain bootstrap interval establishes production faithfulness or 
 Toolkit tag `v2.4.0` still reports package version `2.3.1`; use the recorded source digest and
 Git installation identity to distinguish it. The updated tag allows model-free `models: []`
 descriptors but does not provide a production NLI judge.
+
+## Frozen-Prediction Interval Calibration
+
+[`calibration.py`](calibration.py) fits interval radii on earlier training-event residuals
+and writes adjusted answers for later calibration events. This is an external development
+workflow for the deterministic grounded baseline; it does not alter the submission defaults
+or ship fitted outcome-derived parameters in the public image. Model reports, test splits,
+overlapping windows, incomplete runs and mismatched prediction settings are refused.
+
+First run the unchanged grounded policy on separate train and calibration manifests with
+the same code, toolkit and retrieval settings. Reports predating recorded prediction settings
+must be regenerated. Then run:
+
+```bash
+python -m baselines.evaluation.calibration \
+  --fit-manifest /private/evaluation/train-manifest.json \
+  --fit-report /private/evaluation/train-run/report.json \
+  --apply-manifest /private/evaluation/calibration-manifest.json \
+  --apply-report /private/evaluation/calibration-run/report.json \
+  --out /private/evaluation/new-calibrated-run
+```
+
+The finite-sample quantile uses the maximum absolute error within each event. Correlated
+entity rows, target views and repeated seeds cannot inflate the event count. Bins match the
+declared family, target, units, horizon and roster size; insufficient events or missing bins
+produce an error instead of an invented finite interval. The statistical coverage statement
+assumes exchangeable event residuals, meaning that past and future error distributions can be
+treated alike. Chronological financial data does not establish that assumption.
+
+The tool verifies original answer and input hashes and recomputes fitting residuals through
+the shared scorer. It writes all adjusted answers before opening application outcomes, then
+rescoring uses the same official formulas. Points, labels, ranks and citations stay unchanged;
+interval-width diagnostics accompany the new report. Fitted radii, original answers and reports
+remain outside every public worktree. Changing intervals also changes the submitted hypothesis:
+historical citations alone do not establish future bounds, and production NLI must be measured
+separately. Local coverage on the calibration split is not a held-out or leaderboard claim.

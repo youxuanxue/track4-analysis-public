@@ -255,6 +255,12 @@ def main(argv: list[str] | None = None) -> int:
                 {}
             )  # Refuse unavailable production scoring before running an agent.
         identity = provenance()
+        from baselines.strong_rag_baseline.config import Config
+
+        identity["prediction_settings"] = {
+            "mode": args.mode,
+            "top_k": Config.from_env().top_k,
+        }
         image = None
         if args.image:
             result = subprocess.run(
