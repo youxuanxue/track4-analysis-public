@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -35,6 +36,46 @@ from .local_server import LocalLlamaServer, try_start_local_server
 from .retriever import BM25Index
 
 
+def _validate_diagnostics_path(
+    diagnostics_path: Path, task_path: Path, corpus_dir: Path, out_path: Path
+) -> None:
+    resolved = diagnostics_path.resolve()
+    corpus_root = corpus_dir.resolve()
+    if resolved == corpus_root or corpus_root in resolved.parents:
+        raise ValueError("diagnostics path must be outside the input corpus")
+    if diagnostics_path.is_dir():
+        raise ValueError("diagnostics path must be a file")
+    protected = [task_path, out_path]
+    protected.extend(path for path in corpus_dir.rglob("*") if path.is_file())
+    for path in protected:
+        if resolved == path.resolve() or (
+            diagnostics_path.exists()
+            and path.exists()
+            and diagnostics_path.samefile(path)
+        ):
+            raise ValueError(
+                "diagnostics path must differ from all inputs and the answer"
+            )
+
+
+def _write_diagnostics(path: Path, diagnostics: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent, delete=False
+        ) as output:
+            temporary = Path(output.name)
+            json.dump(
+                diagnostics, output, indent=2, ensure_ascii=False, allow_nan=False
+            )
+            output.write("\n")
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def run(
     task_path: Path,
     corpus_dir: Path,
@@ -43,26 +84,46 @@ def run(
     top_k: int,
     *,
     grounded: bool = False,
+    diagnostics_path: Path | None = None,
 ) -> dict:
+    if diagnostics_path is not None:
+        _validate_diagnostics_path(diagnostics_path, task_path, corpus_dir, out_path)
     task = json.loads(task_path.read_text(encoding="utf-8"))
     corpus = build_index(corpus_dir)
     index = BM25Index(corpus.chunks, task["cutoff_date"])
-    if grounded or client is None:
-        results = [
-            run_entity_grounded(task, entity, index, corpus, top_k)
-            for entity in task.get("entities", [])
-        ]
-    else:
-        results = [
-            run_entity(task, entity, index, corpus, client, top_k)
-            for entity in task.get("entities", [])
-        ]
+    results = []
+    diagnostics: dict = {
+        "schema_version": "1",
+        "task_id": task.get("task_id", ""),
+        "mode": "grounded" if grounded or client is None else "model",
+        "entities": [],
+    }
+    for entity in task.get("entities", []):
+        started = time.monotonic()
+        if grounded or client is None:
+            result = run_entity_grounded(task, entity, index, corpus, top_k)
+            result.fallback_reason = "forced_grounded" if grounded else "no_endpoint"
+        else:
+            result = run_entity(task, entity, index, corpus, client, top_k)
+        elapsed_s = max(0.0, time.monotonic() - started)
+        results.append(result)
+        diagnostics["entities"].append(
+            {
+                "entity_id": entity.get("entity_id", ""),
+                "source": result.source,
+                "fallback_reason": result.fallback_reason,
+                "elapsed_s": elapsed_s,
+                "dropped_claims": result.dropped_claims,
+            }
+        )
     answer = build_answer(task, results, corpus)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
         json.dumps(answer, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
         encoding="utf-8",
     )
+    if diagnostics_path is not None:
+        _write_diagnostics(diagnostics_path, diagnostics)
     return answer
 
 
@@ -74,6 +135,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--task", type=Path, required=True)
     parser.add_argument("--corpus", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--diagnostics", type=Path)
     parser.add_argument(
         "--mock",
         action="store_true",
@@ -88,6 +150,13 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
+    if args.diagnostics is not None:
+        try:
+            _validate_diagnostics_path(
+                args.diagnostics, args.task, args.corpus, args.out
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
 
     config = Config.from_env()
     deadline = time.monotonic() + config.unit_timeout_s
@@ -118,7 +187,8 @@ def main(argv: list[str] | None = None) -> int:
             args.out,
             client,
             config.top_k,
-            grounded=use_grounded,
+            grounded=bool(args.mock),
+            diagnostics_path=args.diagnostics,
         )
     finally:
         if server is not None:
