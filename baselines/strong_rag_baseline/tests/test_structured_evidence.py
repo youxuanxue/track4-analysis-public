@@ -240,3 +240,40 @@ def test_directory_only_material_is_excluded_but_substantive_exhibit_text_surviv
     assert packet.chunks
     assert all("accompanying Exhibit Index" not in c.text for c in packet.chunks)
     assert any("restrict borrowing" in c.text for c in packet.chunks)
+
+
+def test_repeated_entity_name_headings_cannot_displace_substantive_evidence():
+    task, entity, _, _ = fixture()
+    text = "ACME\n(Acme)\nAcme.\nAcme revenue grew 5 percent."
+    chunk = Chunk("report", "2024-01-01", 0, len(text), text)
+    corpus = IndexedCorpus([chunk], {"report": text}, {"report": chunk.doc_date})
+    packet = prepare_evidence(
+        task, entity, BM25Index([chunk], task["cutoff_date"]), corpus, top_k=1
+    )
+    [selected] = packet.chunks
+    assert selected.text == "Acme revenue grew 5 percent."
+    assert text[selected.span_start : selected.span_end] == selected.text
+
+
+def test_metric_queries_prefer_financial_facts_to_short_filing_headings():
+    task, entity, _, _ = fixture()
+    entity.update(cik="123")
+    task["target"]["name"] = "credit_event_probability"
+    doc_id = "EDGAR_0000000123"
+    text = (
+        "Acme\nCredit Agreement\nRevolving credit facility\n"
+        "Acme credit risks remain subject to refinancing expectations.\n"
+        "Acme defaulted."
+    )
+    chunk = Chunk(doc_id, "2024-01-01", 0, len(text), text)
+    corpus = IndexedCorpus([chunk], {doc_id: text}, {doc_id: chunk.doc_date})
+    packet = prepare_evidence(
+        task, entity, BM25Index([chunk], task["cutoff_date"]), corpus, top_k=4
+    )
+    assert packet.chunks
+    assert all(
+        c.text not in {"Acme", "Credit Agreement", "Revolving credit facility"}
+        for c in packet.chunks
+    )
+    assert any("credit risks" in c.text for c in packet.chunks)
+    assert any("defaulted" in c.text for c in packet.chunks)

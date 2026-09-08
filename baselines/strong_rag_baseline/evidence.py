@@ -51,6 +51,10 @@ _ADMINISTRATIVE = re.compile(
     r"item\s+\d+[a-z]?[.\s-]+(?:exhibits|signatures|financial statement schedules)[.\s]*)",
     re.I,
 )
+_PREDICATE = re.compile(
+    r"\b(?:is|are|was|were|has|have|had|will|would|can|could|may|might|must|shall|[a-z]{3,}ed)\b",
+    re.I,
+)
 
 
 @dataclass(frozen=True)
@@ -78,11 +82,13 @@ def evidence_queries(task: dict, entity: dict) -> list[str]:
     identity = " ".join(dict.fromkeys(_entity_aliases(entity)))
     metric = target_name(task)
     base = " ".join(part for part in (identity, metric) if part).strip()
+    # Candidates are already entity-bound; repeating the name in every query
+    # gives short company headings four votes and crowds out financial facts.
     return [
         base,
-        f"{base} historical prior previous reported",
-        f"{base} consensus estimates expectations",
-        f"{base} guidance forecast outlook risks",
+        f"{metric} historical prior previous reported",
+        f"{metric} consensus estimates expectations",
+        f"{metric} guidance forecast outlook risks",
     ]
 
 
@@ -174,6 +180,7 @@ def prepare_evidence(
     cutoff = task.get("cutoff_date")
     calendar_date(cutoff)
     aliases = _entity_aliases(entity)
+    alias_tokens = {tuple(re.findall(r"\w+", alias.lower())) for alias in aliases}
     roster = task.get("entities") or []
     other_aliases = {
         alias
@@ -222,6 +229,14 @@ def prepare_evidence(
                 end = boundary
         snippet = text[start:end]
         if not snippet.strip() or _ADMINISTRATIVE.fullmatch(snippet.strip()):
+            continue
+        if tuple(re.findall(r"\w+", snippet.lower())) in alias_tokens:
+            continue
+        if (
+            len(re.findall(r"\w+", snippet)) < 8
+            and not _NUMBER.search(snippet)
+            and not _PREDICATE.search(snippet)
+        ):
             continue
         # Cropping cannot turn a text-bound excerpt into an unbound excerpt.
         if _alias_hit(window.text, aliases) and not _alias_hit(snippet, aliases):
