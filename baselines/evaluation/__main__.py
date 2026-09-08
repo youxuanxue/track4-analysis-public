@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -97,9 +98,14 @@ def run_local(
 def run_container(
     stage: Path, output: Path, *, image: str, seed: int, timeout: float
 ) -> dict:
-    def docker(*args, limit=60):
+    def docker(*args, limit=60, check=True, quiet=False):
         return subprocess.run(
-            ["docker", *args], capture_output=True, text=True, check=True, timeout=limit
+            ["docker", *args],
+            stdout=subprocess.DEVNULL if quiet else subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=check,
+            timeout=limit,
         )
 
     container = docker(
@@ -124,11 +130,13 @@ def run_container(
         "--mock",
     ).stdout.strip()
     try:
+        # Precreate the output directory so a missing answer is scored as a failed case.
+        with tempfile.TemporaryDirectory(prefix="t4-empty-output-") as empty:
+            docker("cp", empty, f"{container}:/output")
         docker("cp", str(stage), f"{container}:/input")
         try:
-            docker("start", "--attach", container, limit=timeout)
-            code = int(
-                docker("inspect", "--format", "{{.State.ExitCode}}", container).stdout
+            docker(
+                "start", "--attach", container, limit=timeout, check=False, quiet=True
             )
         except subprocess.TimeoutExpired:
             return {
@@ -137,15 +145,33 @@ def run_container(
                 "isolation": "docker-network-none",
                 "limits": {"cpus": 1, "memory": "1g"},
             }
-        except subprocess.CalledProcessError as exc:
-            code = exc.returncode
+        state = json.loads(
+            docker("inspect", "--format", "{{json .State}}", container).stdout
+        )
+        if state["Status"] != "exited" or state.get("Error"):
+            raise RuntimeError(
+                "evaluation container did not complete: Docker runtime failure"
+            )
+        code = int(state["ExitCode"])
+        artifact_errors = []
         if code == 0:
-            docker("cp", f"{container}:/output/.", str(output))
+            # Participant files cannot replace evaluator records or link to host data.
+            with tempfile.TemporaryDirectory(prefix="t4-container-output-") as temp:
+                docker("cp", f"{container}:/output/.", temp)
+                for name in ("answer.json", "diagnostics.json"):
+                    source = Path(temp) / name
+                    if source.is_symlink() or (
+                        source.exists() and not source.is_file()
+                    ):
+                        artifact_errors.append(f"{name}: expected a regular file")
+                    elif source.is_file():
+                        shutil.copyfile(source, output / name)
         return {
             "returncode": code,
             "timed_out": False,
             "isolation": "docker-network-none",
             "limits": {"cpus": 1, "memory": "1g"},
+            "artifact_errors": artifact_errors,
         }
     finally:
         docker("rm", "--force", container)
@@ -200,6 +226,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         require_external(args.out, public_roots())
         cases = load_cases(units=args.units, manifest=args.manifest)
+        if args.profile == "production" and any(
+            case.truth_path is None for case in cases
+        ):
+            raise ValueError(
+                "production evaluation requires external truth for every case"
+            )
         from qfbench2_common import manifest, taskcard
         from .assess import assess_unit
 

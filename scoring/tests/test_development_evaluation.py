@@ -183,6 +183,25 @@ def test_production_profile_refuses_missing_pinned_judge(
         assess_unit(unit, output, realized=truth, profile="production")
 
 
+@pytest.mark.parametrize("bad_answer", [False, True])
+def test_production_requires_truth_before_judge_or_answer_assessment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad_answer: bool
+) -> None:
+    unit, output, answer, _ = _case(tmp_path)
+    if bad_answer:
+        answer["entity_predictions"].pop()
+        _write_answer(output, answer)
+
+    def unexpected_verifier(_ctx: dict[str, Any]) -> None:
+        pytest.fail("missing production outcomes must be rejected before the judge")
+
+    monkeypatch.setattr(
+        "qfbench2_track_analysis.scoring.build_verifier", unexpected_verifier
+    )
+    with pytest.raises(T4OrganizerFault, match="requires explicit realized outcomes"):
+        assess_unit(unit, output, profile="production")
+
+
 @pytest.mark.parametrize("metadata", ["card", "manifest"])
 def test_invalid_unit_metadata_aborts_before_assessment(
     tmp_path: Path, metadata: str

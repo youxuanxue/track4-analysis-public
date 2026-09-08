@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -150,6 +149,8 @@ def stage_inputs(unit: Path, dest: Path) -> str:
     declared = json.loads((unit / "manifest.json").read_text(encoding="utf-8"))
     names = ["task.json"]
     for item in declared["files"]:
+        if item.get("role") != "corpus" or item["path"] == "corpus/manifest.json":
+            continue
         path = Path(item["path"])
         if path.parts and path.parts[0] == "corpus" and path.suffix == ".json":
             if path.is_absolute() or ".." in path.parts:
@@ -167,5 +168,5 @@ def stage_inputs(unit: Path, dest: Path) -> str:
         digest.update(name.encode() + b"\0" + payload + b"\0")
         target = dest / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, target)
+        target.write_bytes(payload)
     return digest.hexdigest()

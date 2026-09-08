@@ -31,7 +31,8 @@ _METRIC = re.compile(
     re.I,
 )
 _NUMBER = re.compile(
-    r"(?<![\w.])(?P<currency>USD\s*|EUR\s*|GBP\s*|\$\s*)?"
+    r"(?<![\w.$+-])(?:(?P<currency_sign>[+-])?"
+    r"(?P<currency>USD\s*|EUR\s*|GBP\s*|\$\s*))?"
     r"(?P<value>[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)(?![\w]|\.\d)"
     r"(?:\s*(?P<scale>thousand|million|billion)\b)?"
     r"(?:\s*(?P<unit>%|percent\b|bps\b|basis points?\b|"
@@ -81,7 +82,12 @@ def _quantities(chunk: Chunk) -> list[dict[str, Any]]:
         if any(start <= match.start("value") < end for start, end in excluded):
             continue
         raw = match.group("value")
+        currency_sign = match.group("currency_sign")
+        if currency_sign and raw.startswith(("+", "-")):
+            continue
         value = float(raw.replace(",", ""))
+        if currency_sign == "-":
+            value = -value
         currency = (match.group("currency") or "").strip() or None
         unit = match.group("unit")
         # Parentheses denote a negative accounting value only when they directly

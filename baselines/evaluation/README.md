@@ -28,6 +28,8 @@ Use `--image` to run an already-built baseline image through Docker with no netw
 The tool resolves its immutable image ID before running; build the image from the same
 workspace to get the optional diagnostics sidecar. Only declared task and corpus files
 are copied into the container. No host data directories or Docker socket are mounted.
+Returned artifacts are collected separately; only regular answer and diagnostics files
+are imported. Container runtime faults abort evaluation instead of becoming scored failures.
 This tests Docker execution, not the organizer's gVisor environment or model service.
 The offline container uses conservative local CPU/memory caps, recorded with each run;
 they do not claim to reproduce the official compute grant.
@@ -81,7 +83,8 @@ keep training diagnostics separate from held-out performance.
 `official_score` remains null and `rankable` remains false for all local reports.
 `nli_faithfulness` remains null under smoke; `lexical_faithfulness` is a diagnostic proxy.
 Production mode requires the organizer's configured judge and external outcomes and never
-downgrades to smoke. The runner stops before inference when the judge cannot be constructed.
+downgrades to smoke. The runner stops before inference when outcomes are undeclared or the
+judge cannot be constructed.
 
 Provenance includes the workspace source digest, Git revision and dirty state, Python,
 installed scorer identity, and the actual shared-toolkit source digest. A package version

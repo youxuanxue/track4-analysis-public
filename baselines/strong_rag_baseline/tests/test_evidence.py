@@ -131,11 +131,38 @@ def test_dates_and_explicit_periods_are_not_numeric_observations():
     assert [p["text"] for p in record["periods"]] == ["FY2023"]
 
 
-def test_unsupported_numeric_forms_are_not_partially_parsed():
+@pytest.mark.parametrize("token", ["1.2e5", "1.2e-5", "1.2e+5", "-2E-10"])
+def test_unsupported_numeric_forms_are_not_partially_parsed(token):
     packet, _ = _packet(
-        [("report", "2024-05-01", "Beta Company EPS estimate token was 1.2e5.")]
+        [("report", "2024-05-01", f"Beta Company EPS estimate token was {token}.")]
     )
     assert packet.ledger["records"][0]["quantities"] == []
+
+
+@pytest.mark.parametrize(
+    ("token", "expected", "currency"),
+    [
+        ("-$2.50", -2.5, "$"),
+        ("-USD 2.50", -2.5, "USD"),
+        ("+$2.50", 2.5, "$"),
+        ("USD -2.50", -2.5, "USD"),
+    ],
+)
+def test_signed_currency_preserves_value_and_exact_offsets(token, expected, currency):
+    packet, corpus = _packet(
+        [("report", "2024-05-01", f"Beta Company EPS was {token}.")]
+    )
+    [record] = packet.ledger["records"]
+    [quantity] = record["quantities"]
+    assert quantity["text"] == token
+    assert quantity["value"] == expected
+    assert quantity["currency"] == quantity["unit"] == currency
+    assert (
+        corpus.doc_texts[record["doc_id"]][
+            quantity["span_start"] : quantity["span_end"]
+        ]
+        == token
+    )
 
 
 def test_unrepresentable_quantity_remains_json_safe():

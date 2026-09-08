@@ -132,6 +132,10 @@ def assess_unit(
 
     if profile not in ("smoke", "production"):
         raise ValueError("profile must be 'smoke' or 'production'")
+    if profile == "production" and realized is None:
+        raise T4OrganizerFault(
+            "production development assessment requires explicit realized outcomes"
+        )
     unit_dir, output_dir = Path(unit_dir), Path(output_dir)
     try:
         card, card_errors = taskcard.load_and_validate(unit_dir)

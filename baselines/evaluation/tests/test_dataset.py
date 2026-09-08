@@ -106,12 +106,24 @@ def test_staging_excludes_truth_and_undeclared_files(tmp_path):
     (unit / "corpus/unlisted.json").write_text(
         '{"private_marker":"must not reach predictor"}'
     )
+    (unit / "corpus/ancillary.json").write_text(
+        '{"text":"private_marker: declared metadata is not citable evidence"}'
+    )
+    (unit / "corpus/manifest.json").write_text('{"private_marker":"corpus index"}')
     (unit / "reference").mkdir()
     (unit / "reference/secret.json").write_text(
         '{"private_marker":"must not reach predictor"}'
     )
     (unit / "manifest.json").write_text(
-        json.dumps({"files": [{"path": "corpus/source.json"}]})
+        json.dumps(
+            {
+                "files": [
+                    {"path": "corpus/source.json", "role": "corpus"},
+                    {"path": "corpus/ancillary.json", "role": "metadata"},
+                    {"path": "corpus/manifest.json", "role": "corpus"},
+                ]
+            }
+        )
     )
     dest = tmp_path / "staged"
     digest = stage_inputs(unit, dest)
@@ -124,6 +136,23 @@ def test_staging_excludes_truth_and_undeclared_files(tmp_path):
     assert stage_inputs(unit, tmp_path / "staged-again") != digest
 
 
+@pytest.mark.parametrize("role", ["metadata", None])
+def test_staging_requires_declared_citable_evidence(tmp_path, role):
+    unit = task(tmp_path / "unit")
+    (unit / "manifest.json").write_text(
+        json.dumps(
+            {
+                "files": [
+                    {"path": "corpus/source.json", "role": role},
+                    {"path": "corpus/manifest.json", "role": "corpus"},
+                ]
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="no JSON evidence"):
+        stage_inputs(unit, tmp_path / "staged")
+
+
 def test_staging_rejects_corpus_symlink(tmp_path):
     unit = task(tmp_path / "unit")
     (unit / "corpus").mkdir()
@@ -131,7 +160,7 @@ def test_staging_rejects_corpus_symlink(tmp_path):
     secret.write_text("{}")
     (unit / "corpus/source.json").symlink_to(secret)
     (unit / "manifest.json").write_text(
-        json.dumps({"files": [{"path": "corpus/source.json"}]})
+        json.dumps({"files": [{"path": "corpus/source.json", "role": "corpus"}]})
     )
     with pytest.raises(ValueError, match="link outside"):
         stage_inputs(unit, tmp_path / "staged")

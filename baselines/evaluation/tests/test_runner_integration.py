@@ -146,3 +146,22 @@ def test_existing_output_is_not_reused(tmp_path):
     assert json.loads((out / "report.json").read_text()) == {
         "preserved": "user artifact"
     }
+
+
+def test_production_requires_truth_before_inference(tmp_path, monkeypatch, capsys):
+    units = tmp_path / "inputs"
+    build_unit(units)
+
+    def must_not_predict(*args, **kwargs):
+        pytest.fail("missing production truth must be rejected before inference")
+
+    monkeypatch.setattr(runner, "run_local", must_not_predict)
+    out = tmp_path / "report"
+    assert (
+        runner.main(
+            ["--units", str(units), "--out", str(out), "--profile", "production"]
+        )
+        == 2
+    )
+    assert "requires external truth for every case" in capsys.readouterr().err
+    assert not (out / "report.json").exists()
