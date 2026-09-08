@@ -87,8 +87,9 @@ structurally unable to help.
 Feature columns are the pre-cutoff facts the unit hands you: `prior_year_q_eps`,
 `start_yield_pct`, `net_pct_oi_20241022`, `latest_precutoff_estimate`, `offering_amount_usd_bn`.
 Resolved outcomes are never among them. A column that looks like the answer is a *prior* value,
-usually the same quantity one period earlier, and the naive baseline of carrying it forward is
-exactly the baseline a regression unit's skill score measures you against.
+usually the same quantity one period earlier and can seed a persistence forecast. The regression
+scorer instead compares error against the realized cross-entity mean, which is unavailable at
+prediction time. The shared toolkit's `predictive_quality` function owns that calculation.
 
 ### 4. What units the target is in
 

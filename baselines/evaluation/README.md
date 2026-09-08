@@ -84,6 +84,12 @@ keep training diagnostics separate from held-out performance.
 
 `official_score` remains null and `rankable` remains false for all local reports.
 `nli_faithfulness` remains null under smoke; `lexical_faithfulness` is a diagnostic proxy.
+When numeric truth and aligned predictions exist, `numeric_errors` records raw target-scale
+absolute and signed errors. These diagnostics keep differences visible when the official
+normalized quality clips to zero; they never replace the official scoring function.
+The diagnostics also expose the MAE of the realized cross-section mean, the reference used
+by regression skill. That mean is known only after resolution and is not an available
+forecasting policy. A small raw MAE can still yield zero skill against this reference.
 Production mode requires the organizer's configured judge and external outcomes and never
 downgrades to smoke. The runner stops before inference when outcomes are undeclared or the
 judge cannot be constructed.
@@ -92,3 +98,123 @@ Provenance includes the workspace source digest, Git revision and dirty state, P
 installed scorer identity, and the actual shared-toolkit source digest. A package version
 without a verified build stamp is identified as such. The Docker image ID identifies
 participant runtime bytes separately from evaluator workspace bytes.
+
+## Historical snapshots and evidence review
+
+The development-only [historical builder](./historical.py) reads an external event specification
+and retrieves Treasury observations from ALFRED. It requires `curl` for acquisition; cached
+snapshots can subsequently be rebuilt offline. Every series is requested separately, and its
+returned column must carry the exact requested vintage date. This matters because a multi-series
+request can silently return the latest vintage for some columns. Downloaded bytes, source URLs,
+vintages and retrieval times are retained outside the public repository.
+
+The specification has `version: 1` and an `events` array. Each event declares `id`, `cutoff`,
+`resolution`, and `split` (train, calibration or test). The builder refuses overlapping event
+windows and split leakage before downloading. It creates classification, regression and ranking
+views of each event, with the same event group: those views are correlated, not additional
+independent samples. This is a single-domain rates benchmark, not a proxy for all hidden families.
+The corpus is a deterministic extract of historical observations, not a financial forecast.
+Only prediction inputs go under each unit; future snapshots and outcomes stay outside those units.
+
+For a separate inflation benchmark, set the external specification's `family` to `cpi_mom`
+and add `target_month` (an ISO date on the first of the month) to each event. The supported
+seasonally adjusted series are declared in [`historical.py`](./historical.py). Each target
+is the month-over-month percent change calculated from two index levels in the resolution
+vintage; it is **not a certified first-release value**. Both levels use that same vintage,
+so a revised denominator is handled consistently. The target month must be absent from
+the cutoff snapshot, immediately follow its latest observation, and be the latest month
+in the resolution snapshot. Invalid or incomplete events abort the build.
+
+CPI inputs include prior monthly levels and the last available monthly change. Input tables
+use observation dates; their document dates identify the snapshot's availability. CPI
+components overlap, and the target views share a release event, so neither entity rows nor
+views count as independent samples. Keep this domain's development and held-out rosters
+separate and retain the same chronological split checks. The default Treasury build and
+its existing cache URLs remain unchanged.
+
+```bash
+python -m baselines.evaluation.historical \
+  --spec /private/evaluation/events.json \
+  --cache /private/evaluation/alfred-cache \
+  --out /private/evaluation/new-benchmark
+
+python -m baselines.evaluation.review \
+  --report /private/evaluation/run/report.json \
+  --manifest /private/evaluation/new-benchmark/manifest.json \
+  --out /private/evaluation/new-review
+
+python -m baselines.evaluation.compare \
+  --before /private/evaluation/baseline/report.json \
+  --after /private/evaluation/candidate/report.json \
+  --out /private/evaluation/comparison.json
+```
+
+Use `--units units` instead of `--manifest` to audit public runs. The review packet contains the
+canonical hypothesis and resolved citation text for every entity. Its adjacent annotations start
+as `unreviewed`; passing date/offset checks never creates semantic approval. Edited annotations
+can be passed back with `--annotations` into a new review directory. A completed judgment requires
+an attributed reviewer and reason, and annotations bind to the exact packet digest. Automated
+or model-assisted judgments must be attributed as such. Historical reports without an original
+answer hash explicitly record that limitation; their hypotheses and citation positions are checked.
+
+Comparisons require identical complete case/seed rosters, input and truth digests, split/group
+assignments, judge identity and toolkit bytes. Failed units stay in the mean. Bootstrap intervals
+resample event groups, averaging correlated views and seeds inside each group. Inspect the test
+split separately; the overall result includes every supplied split. Neither a smoke score nor
+a small single-domain bootstrap interval establishes production faithfulness or generalization.
+
+Toolkit tag `v2.4.0` still reports package version `2.3.1`; use the recorded source digest and
+Git installation identity to distinguish it. The updated tag allows model-free `models: []`
+descriptors but does not provide a production NLI judge.
+
+## Frozen-Prediction Interval Calibration
+
+[`calibration.py`](calibration.py) fits interval radii on earlier training-event residuals
+and writes adjusted answers for later calibration events. This is an external development
+workflow for frozen local predictions; it does not alter the submission defaults
+or ship fitted outcome-derived parameters in the public image. Unverified model reports, test
+splits, overlapping windows, incomplete runs and mismatched prediction settings are refused.
+
+First run the unchanged grounded policy on separate train and calibration manifests with
+the same code, toolkit and retrieval settings. Reports predating recorded prediction settings
+must be regenerated. Then run:
+
+```bash
+python -m baselines.evaluation.calibration \
+  --fit-manifest /private/evaluation/train-manifest.json \
+  --fit-report /private/evaluation/train-run/report.json \
+  --apply-manifest /private/evaluation/calibration-manifest.json \
+  --apply-report /private/evaluation/calibration-run/report.json \
+  --out /private/evaluation/new-calibrated-run
+```
+
+The finite-sample quantile uses the maximum absolute error within each event. Correlated
+entity rows, target views and repeated seeds cannot inflate the event count. Bins match the
+declared family, target, units, horizon and roster size; insufficient events or missing bins
+produce an error instead of an invented finite interval. The statistical coverage statement
+assumes exchangeable event residuals, meaning that past and future error distributions can be
+treated alike. Chronological financial data does not establish that assumption.
+
+The tool verifies original answer and input hashes and recomputes fitting residuals through
+the shared scorer. It writes all adjusted answers before opening application outcomes, then
+rescoring uses the same official formulas. Points, labels, ranks and citations stay unchanged;
+interval-width diagnostics accompany the new report. Fitted radii, original answers and reports
+remain outside every public worktree. Changing intervals also changes the submitted hypothesis:
+historical citations alone do not establish future bounds, and production NLI must be measured
+separately. Local coverage on the calibration split is not a held-out or leaderboard claim.
+
+For model predictions, also supply `--fit-runtime` and `--apply-runtime` with external local
+launcher records. [`runtime.py`](runtime.py) defines their validation: each completed record
+binds the exact report and manifest hashes to a clean code revision, a local launch command,
+the runtime executable, weight shards, launcher identity, host and generation settings. The
+executable and weight files are rehashed. Only the loopback port may vary between launches;
+changing the context, backend or any other recorded setting requires new matching runs.
+The model reports must include complete per-entity diagnostics with no grounded fallbacks.
+Old launcher records lacking binary/report hashes cannot be used and must be regenerated.
+
+These records are attestations from a trusted local launcher that owns the server, not
+cryptographic proof of what an arbitrary remote service executed. The launcher must record
+the actual command and effective settings, seal report hashes after evaluation, and mark
+completion only after the owned processes have exited successfully. Calibration never
+reuses grounded residuals for model predictions. Its artifact retains the runtime record
+hashes and common model identity; it remains a development experiment outside the image.

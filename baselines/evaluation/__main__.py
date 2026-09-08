@@ -255,6 +255,12 @@ def main(argv: list[str] | None = None) -> int:
                 {}
             )  # Refuse unavailable production scoring before running an agent.
         identity = provenance()
+        from baselines.strong_rag_baseline.config import Config
+
+        identity["prediction_settings"] = {
+            "mode": args.mode,
+            "top_k": Config.from_env().top_k,
+        }
         image = None
         if args.image:
             result = subprocess.run(
@@ -299,11 +305,12 @@ def main(argv: list[str] | None = None) -> int:
                         )
                 elapsed = time.monotonic() - started
                 # Truth paths are never passed to the predictor and opened only after it exits.
-                realized = (
-                    json.loads(case.truth_path.read_text(encoding="utf-8"))
+                truth_text = (
+                    case.truth_path.read_text(encoding="utf-8")
                     if case.truth_path
                     else None
                 )
+                realized = json.loads(truth_text) if truth_text is not None else None
                 assessment_output = output
                 if execution["returncode"] != 0:
                     assessment_output = output / "failed-execution"
@@ -321,6 +328,17 @@ def main(argv: list[str] | None = None) -> int:
                     "seed": seed,
                     "profile": args.profile,
                     "input_digest": digest,
+                    "truth_digest": hashlib.sha256(truth_text.encode()).hexdigest()
+                    if truth_text is not None
+                    else None,
+                    "target_type": json.loads(
+                        (case.unit_dir / "task.json").read_text()
+                    )["target"]["type"],
+                    "answer_sha256": hashlib.sha256(
+                        (output / "answer.json").read_bytes()
+                    ).hexdigest()
+                    if (output / "answer.json").is_file()
+                    else None,
                     "elapsed_s": elapsed,
                     "preparation_elapsed_s": preparation_elapsed,
                     "evidence_stats": {

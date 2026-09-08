@@ -1,13 +1,12 @@
 """Entity-bound model retrieval with exact, inspectable source annotations.
 
-Annotations are lexical mentions, not a table parser or inferred relationships.
+Lexical annotations do not infer relationships; dated tables have separate summaries.
 In particular, a quantity never inherits the requested metric, fiscal period, or
 unit. Explicit series columns retain their source table and column identity.
 """
 
 from __future__ import annotations
 
-import csv
 import hashlib
 import json
 import re
@@ -19,6 +18,13 @@ from .quantities import finite_number
 from .reasoner import _alias_hit, _entity_aliases, collect_windows
 from .retriever import BM25Index
 from .schema import target_name, target_type
+from .tables import (
+    dated_header,
+    dated_tables,
+    percent_declaration,
+    summary_columns,
+    table_summaries,
+)
 
 _PERIOD = re.compile(
     r"\b(?:Q[1-4]\s+(?:FY\s*)?20\d{2}|(?:FY\s*)?20\d{2}\s+Q[1-4]|"
@@ -197,8 +203,8 @@ def prepare_evidence(
     )
     candidates: dict[tuple[str, int, int], Chunk] = {}
     series = str(entity.get("series_fred") or entity.get("series_id") or "")
-    tables = (
-        _series_tables(corpus, entity, series, cutoff, max_span_chars) if series else []
+    tables = _entity_tables(
+        corpus, entity, series, cutoff, max_span_chars, other_aliases
     )
     table_keys = set()
     for chunk in tables:
@@ -209,7 +215,14 @@ def prepare_evidence(
         if window.entity_ambiguous:
             continue
         # A series header is useful only together with its dated data rows.
-        if series and _series_header(window.text, series, max_span_chars):
+        if dated_header(window.text, max_span_chars):
+            continue
+        if any(
+            table.doc_id == window.doc_id
+            and table.span_start <= window.span_start
+            and window.span_end <= table.span_end
+            for table in tables
+        ):
             continue
         text = corpus.doc_texts[window.doc_id]
         chunk = Chunk(
@@ -269,6 +282,8 @@ def prepare_evidence(
         matched = [alias for alias in aliases if _alias_hit(chunk.text, [alias])]
         provenance = (
             "series_column"
+            if key in table_keys and series
+            else "document_table"
             if key in table_keys
             else "text_alias"
             if matched
@@ -286,12 +301,15 @@ def prepare_evidence(
                 "binding": {
                     "source": provenance,
                     "aliases": matched,
-                    **({"column": series} if key in table_keys else {}),
+                    **({"column": series} if key in table_keys and series else {}),
                 },
                 "query_ids": query_hits[key],
                 "metrics": _mentions(_METRIC, chunk),
                 "periods": _mentions(_PERIOD, chunk),
                 "quantities": _quantities(chunk),
+                "table_summaries": table_summaries(
+                    chunk, cutoff, summary_columns(task, entity, chunk)
+                ),
             }
         )
         if len(selected) == top_k:
@@ -314,33 +332,15 @@ def prepare_evidence(
     return EvidencePacket(chunks=selected, ledger=ledger)
 
 
-def _pipe_cells(text: str, max_chars: int) -> list[str]:
-    if len(text) > max_chars:
-        return []
-    try:
-        cells = next(
-            csv.reader([text], delimiter="|", skipinitialspace=True, strict=True)
-        )
-    except csv.Error:
-        # Optional table extraction must not abort retrieval on ordinary prose
-        # or an unsupported row, including the parser's own field-size limit.
-        return []
-    return [cell.strip() for cell in cells]
-
-
-def _series_header(text: str, series: str, max_chars: int) -> list[str]:
-    cells = _pipe_cells(text, max_chars)
-    return (
-        cells
-        if cells and cells[0].lower() == "date" and cells.count(series) == 1
-        else []
-    )
-
-
-def _series_tables(
-    corpus: IndexedCorpus, entity: dict, series: str, cutoff: str, max_chars: int
+def _entity_tables(
+    corpus: IndexedCorpus,
+    entity: dict,
+    series: str,
+    cutoff: str,
+    max_chars: int,
+    other_aliases: set[str],
 ) -> list[Chunk]:
-    """Retain bounded dated pipe tables with an exact, unique series column."""
+    """Retain exact series columns or tables with an unambiguous document title."""
     result = []
     cik = str(entity.get("cik") or "").zfill(10) if entity.get("cik") else ""
     for doc_id, text in corpus.doc_texts.items():
@@ -349,23 +349,32 @@ def _series_tables(
         date = corpus.doc_dates.get(doc_id)
         if not dated_on_or_before(date, cutoff):
             continue
-        lines = list(re.finditer(r"[^\n]+", text))
-        for i, line in enumerate(lines):
-            header = _series_header(line.group(), series, max_chars)
-            if not header:
+        title = text.partition("\n")[0]
+        owned = _alias_hit(title, _entity_aliases(entity)) and not _alias_hit(
+            title, other_aliases
+        )
+        for table in dated_tables(text, cutoff, max_chars):
+            if series and series not in table.header:
                 continue
-            end = line.end()
-            for row in lines[i + 1 :]:
-                cells = _pipe_cells(
-                    row.group(), max_chars - (row.start() - line.start())
-                )
-                if len(cells) != len(header) or not dated_on_or_before(
-                    cells[0], cutoff
-                ):
-                    break
-                end = row.end()
-            if end > line.end():
-                result.append(
-                    Chunk(doc_id, date, line.start(), end, text[line.start() : end])
-                )
+            if not series and (
+                not owned
+                or _alias_hit(text[table.start : table.rows[-1].end], other_aliases)
+            ):
+                continue
+            start = table.start
+            before = text[:start].rstrip("\r\n")
+            previous = before.rfind("\n") + 1
+            declaration = before[previous:]
+            if (
+                series
+                and len(declaration) <= 300
+                and percent_declaration(declaration, series)
+                and not _alias_hit(declaration, other_aliases)
+                and table.rows[0].end - previous <= max_chars
+            ):
+                start = previous
+            eligible = [row for row in table.rows if row.end - start <= max_chars]
+            if eligible:
+                end = eligible[-1].end
+                result.append(Chunk(doc_id, date, start, end, text[start:end]))
     return result

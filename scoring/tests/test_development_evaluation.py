@@ -78,6 +78,7 @@ def test_development_score_matches_canonical_scorer(
     )
     assert result["development_score"] == expected.score
     assert result["predictive_quality"] == 1.0
+    assert result["numeric_errors"]["mae"] == 0.0
     assert result["interval_coverage"] == 1.0
     assert result["official_score"] is None
     assert result["rankable"] is False
@@ -106,6 +107,37 @@ def test_pure_label_development_unit_has_no_interval_coverage(tmp_path: Path) ->
     assert result["admissible"] is True
     assert result["development_score"] == pytest.approx(0.7)
     assert result["interval_coverage"] is None
+    assert result["numeric_errors"] is None
+
+
+def test_raw_error_remains_visible_when_quality_is_clipped(tmp_path: Path) -> None:
+    unit, output, answer, truth = _case(tmp_path, target_type="regression")
+    for prediction in answer["entity_predictions"]:
+        prediction["point_forecast"] += 100
+        prediction["interval"] = {"level": 0.9, "lo": -1000, "hi": 1000}
+    _write_answer(output, answer)
+    result = assess_unit(unit, output, realized=truth)
+    assert result["predictive_quality"] == 0.0
+    assert result["numeric_errors"]["mae"] == pytest.approx(100)
+    assert result["numeric_errors"]["mean_signed_error"] == pytest.approx(100)
+    assert len(result["numeric_errors"]["entity_errors"]) == len(truth["outcomes"])
+
+
+@pytest.mark.parametrize("values, baseline", [([1, 2, 6], 2.0), ([2, 2, 2], 0.0)])
+def test_regression_diagnostic_exposes_realized_mean_baseline(
+    tmp_path: Path, values: list[float], baseline: float
+) -> None:
+    unit, output, answer, truth = _case(tmp_path, target_type="regression")
+    for prediction, actual, value in zip(
+        answer["entity_predictions"], truth["outcomes"], values
+    ):
+        actual["y"] = value
+        prediction["point_forecast"] = 3
+        prediction["interval"] = {"level": 0.9, "lo": -10, "hi": 10}
+    _write_answer(output, answer)
+    result = assess_unit(unit, output, realized=truth)
+    assert result["numeric_errors"]["cross_section_mean_baseline_mae"] == baseline
+    assert result["predictive_quality"] == 0.0
 
 
 def test_failed_submission_retains_canonical_worst_case(tmp_path: Path) -> None:

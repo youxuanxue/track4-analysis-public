@@ -87,9 +87,9 @@ participant image does not start vLLM or ship full reader weights. This supersed
 full-weights description still present in `SUBMISSION_CLI.md`.
 
 The [descriptor guide](https://github.com/Agenthon-2026/Agenthon2026-public/blob/main/starter-packs/track4/SUBMISSION-DESCRIPTOR.md)
-also documents a model-free deterministic declaration using the legacy `byo-small` category,
-`access: local`, and an honest `none-deterministic-engine` model entry. Choose it only for a
-submission that makes no model calls. This baseline's default endpoint path is an `api` entry.
+also documents a model-free deterministic declaration using the legacy `byo-small` category
+and `models: []` (C5 1.1.0, toolkit tag `v2.4.0`). Use it only when no model is used;
+do not invent a placeholder model entry. This baseline's default endpoint path is an `api` entry.
 
 ## Design
 
@@ -98,6 +98,7 @@ submission that makes no model calls. This baseline's default endpoint path is a
 | `indexer.py` | Reads corpus text and creates chunks with exact character offsets |
 | `retriever.py` | BM25 retrieval over dated, embargo-eligible documents |
 | `evidence.py` | Entity-bound excerpts, explicit series-column tables, evidence IDs and provenance ledger |
+| `tables.py` | Strict dated columns, source-bound historical differences and explicit percent-to-bps conversion |
 | `client.py` | HTTP model calls through the configured endpoint, plus a mock client for tests |
 | `prompts.py` | Task-aware JSON schemas and requests for predictions with evidence IDs |
 | `schema.py` | Reads target type, allowed labels, units and interval requirements |
@@ -116,7 +117,15 @@ the program restores the original text and offsets instead of asking the model t
 Once candidates are entity-bound, metric queries avoid repeating the entity name; bare names
 and recognized administrative headings are excluded without requiring short facts to match a verb list.
 An explicit series-column table retains its header and dated rows; other columns are context,
-not values attributed to the requested series. Numeric annotations remain unlinked mentions.
+not values attributed to the requested series. Dated metric tables can also bind through an
+unambiguous document title. Complete rows are retained within the excerpt budget; summaries
+state the selected date range, which can be shorter than the full source history.
+Lexical numeric annotations remain unlinked mentions. Separately, `tables.py` supplies the prompt
+and provenance ledger with arithmetic for exact series columns or matching target columns.
+Missing or unsupported numbers and duplicate or reversed dates prevent a numeric summary.
+Unknown units remain null; percent-to-bps conversion requires an explicit source declaration.
+Historical extrema are descriptive context, not calibrated prediction intervals. Model forecasts
+and interval bounds still require validation and independent outcome evaluation.
 The HTTP client requests a strict JSON schema. Unsupported schemas, incomplete responses,
 invalid predictions or unknown IDs trigger an explicit fallback, without unconstrained retries.
 Custom clients may retain the original `complete` interface and exact-quote response format;
