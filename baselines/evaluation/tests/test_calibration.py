@@ -157,11 +157,34 @@ def test_calibration_cannot_be_borrowed_for_a_different_contract(defect):
         cal._intervals(answer, task, bins)
 
 
+@pytest.mark.parametrize("mode", ["grounded", "model"])
 def test_integration_replays_real_scorer_without_opening_application_truth_early(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, mode
 ):
     pytest.importorskip("qfbench2_common")
     from baselines.evaluation import historical, __main__ as runner
+    from baselines.evaluation.tests.test_runtime import write_runtime
+
+    original_local = runner.run_local
+
+    def synthetic_model(stage, output, **kwargs):
+        result = original_local(stage, output, **(kwargs | {"mode": "grounded"}))
+        path = output / "diagnostics.json"
+        diagnostics = json.loads(path.read_text())
+        diagnostics["mode"] = "model"
+        for entity in diagnostics["entities"]:
+            entity.update(source="model", fallback_reason=None)
+        path.write_text(json.dumps(diagnostics))
+        return result
+
+    if mode == "model":
+        monkeypatch.setattr(runner, "run_local", synthetic_model)
+        monkeypatch.setenv("MODEL_ENDPOINT", "http://127.0.0.1:17171/v1")
+        monkeypatch.setenv("MODEL_NAME", "synthetic")
+        actual_provenance = runner.provenance
+        monkeypatch.setattr(
+            runner, "provenance", lambda: actual_provenance() | {"git_dirty": False}
+        )
 
     spec_path = tmp_path / "events.json"
     events = []
@@ -188,7 +211,7 @@ def test_integration_replays_real_scorer_without_opening_application_truth_early
     monkeypatch.setattr(historical, "snapshot", invented)
     manifest = historical.build(spec_path, tmp_path / "cache", tmp_path / "benchmark")
     source = json.loads(manifest.read_text())
-    manifests, reports = {}, {}
+    manifests, reports, runtimes = {}, {}, {}
     for split in ("train", "calibration"):
         selected = [
             dict(
@@ -209,10 +232,14 @@ def test_integration_replays_real_scorer_without_opening_application_truth_early
                     str(manifests[split]),
                     "--out",
                     str(reports[split].parent),
+                    "--mode",
+                    mode,
                 ]
             )
             == 0
         )
+        if mode == "model":
+            runtimes[split] = write_runtime(tmp_path, reports[split], manifests[split])
     original = json.loads(reports["calibration"].read_text())
     out = tmp_path / "adjusted"
     application_truth = {
@@ -234,6 +261,8 @@ def test_integration_replays_real_scorer_without_opening_application_truth_early
         manifests["calibration"],
         reports["calibration"],
         out,
+        fit_runtime=runtimes.get("train"),
+        apply_runtime=runtimes.get("calibration"),
     )
     assert result["summary"]["admissible_runs"] == 3
     assert result["summary"]["official_score"] is None
@@ -247,6 +276,40 @@ def test_integration_replays_real_scorer_without_opening_application_truth_early
         )
         assert after["interval_diagnostics"]["after_mean_width"] == 40
         assert before["answer_sha256"] != after["answer_sha256"]
+    if mode == "model":
+        assert artifact["prediction_provenance"]["model_runtime_identity"]
+        assert set(artifact["runtime_record_sha256"]) == {"fit", "apply"}
+        # A different generation context must not borrow the earlier residuals.
+        runtime = json.loads(runtimes["calibration"].read_text())
+        runtime["command"][-1] = "8192"
+        runtimes["calibration"].write_text(json.dumps(runtime))
+        with pytest.raises(ValueError, match="runtime identities differ"):
+            cal.calibrate(
+                manifests["train"],
+                reports["train"],
+                manifests["calibration"],
+                reports["calibration"],
+                tmp_path / "changed-runtime",
+                fit_runtime=runtimes["train"],
+                apply_runtime=runtimes["calibration"],
+            )
+        runtime["command"][-1] = "16384"
+        runtimes["calibration"].write_text(json.dumps(runtime))
+        report = json.loads(reports["calibration"].read_text())
+        report["runs"][0]["diagnostics"]["entities"][0]["source"] = "grounded"
+        reports["calibration"].write_text(json.dumps(report))
+        write_runtime(tmp_path, reports["calibration"], manifests["calibration"])
+        with pytest.raises(ValueError, match="fallback entity"):
+            cal.calibrate(
+                manifests["train"],
+                reports["train"],
+                manifests["calibration"],
+                reports["calibration"],
+                tmp_path / "fallback-model",
+                fit_runtime=runtimes["train"],
+                apply_runtime=runtimes["calibration"],
+            )
+        return
     with pytest.raises(ValueError, match="must be new"):
         cal.calibrate(
             manifests["train"],

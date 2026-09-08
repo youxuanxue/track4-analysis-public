@@ -1,4 +1,4 @@
-"""External event-block interval calibration for frozen grounded predictions.
+"""External event-block interval calibration for frozen local predictions.
 
 Fit on earlier training events, apply to later calibration events, and rescore
 through the official toolkit. Exchangeability is an assumption, not a property
@@ -127,14 +127,22 @@ def validate_partitions(fit: list[Case], apply: list[Case]) -> None:
         raise ValueError("all fitting outcomes must precede every application cutoff")
 
 
-def _load_report(path: Path, cases: list[Case]) -> tuple[dict, dict]:
+def _load_report(
+    path: Path, cases: list[Case], *, allow_model: bool = False
+) -> tuple[dict, dict]:
     report = json.loads(path.read_text())
-    if report.get("mode") != "grounded" or report.get("profile") != "smoke":
-        raise ValueError("calibration currently requires grounded local smoke reports")
+    if (
+        report.get("mode")
+        not in (("grounded", "model") if allow_model else ("grounded",))
+        or report.get("profile") != "smoke"
+    ):
+        raise ValueError(
+            "calibration needs grounded local smoke reports or verified model runtime records"
+        )
     settings = report["provenance"].get("prediction_settings")
     if (
         not isinstance(settings, dict)
-        or settings.get("mode") != "grounded"
+        or settings.get("mode") != report["mode"]
         or not isinstance(settings.get("top_k"), int)
         or isinstance(settings["top_k"], bool)
         or not 1 <= settings["top_k"] <= 30
@@ -183,6 +191,22 @@ def _checked_answer(case: Case, row: dict, report_path: Path) -> tuple[dict, Pat
         raise ValueError("original answer digest changed")
     answer = json.loads(payload)
     validate_answer(task, answer, build_index(case.unit_dir / "corpus"))
+    diagnostics = row.get("diagnostics", {})
+    if diagnostics.get("mode") == "model":
+        entities = diagnostics.get("entities", [])
+        ids = [entity.get("entity_id") for entity in entities]
+        if (
+            len(ids) != len(task["entities"])
+            or set(ids) != {entity["entity_id"] for entity in task["entities"]}
+            or any(
+                entity.get("source") != "model"
+                or entity.get("fallback_reason") is not None
+                for entity in entities
+            )
+        ):
+            raise ValueError(
+                "model calibration refuses missing or fallback entity predictions"
+            )
     return answer, folder
 
 
@@ -219,7 +243,7 @@ def _intervals(answer: dict, task: dict, bins: dict) -> dict:
         spec.validate_prediction(prediction)
     notes = result.setdefault("notes", {})
     notes["interval_calibration"] = (
-        "Intervals supersede the original fallback interval assumptions. "
+        "Intervals supersede the original interval assumptions. "
         "They use earlier training-event residual maxima; see the external calibration artifact. "
         "Points, labels, ranks and source claims are unchanged. Historical citations do not "
         "establish these future bounds; production NLI has not been measured."
@@ -233,6 +257,9 @@ def calibrate(
     apply_manifest: Path,
     apply_report: Path,
     out: Path,
+    *,
+    fit_runtime: Path | None = None,
+    apply_runtime: Path | None = None,
 ) -> dict:
     for path in (fit_manifest, fit_report, apply_manifest, apply_report, out):
         require_external(path, public_roots())
@@ -241,8 +268,40 @@ def calibrate(
     fit = load_cases(units=None, manifest=fit_manifest)
     apply = load_cases(units=None, manifest=apply_manifest)
     validate_partitions(fit, apply)
-    before, fit_rows = _load_report(fit_report, fit)
-    original, apply_rows = _load_report(apply_report, apply)
+    before, fit_rows = _load_report(
+        fit_report, fit, allow_model=fit_runtime is not None
+    )
+    original, apply_rows = _load_report(
+        apply_report, apply, allow_model=apply_runtime is not None
+    )
+    if before["mode"] != original["mode"]:
+        raise ValueError("fitting and application prediction modes differ")
+    if before["mode"] == "model":
+        from .runtime import checked_runtime
+
+        if fit_runtime is None or apply_runtime is None:
+            raise ValueError("model calibration requires both local runtime records")
+        for report, path, manifest, runtime in (
+            (before, fit_report, fit_manifest, fit_runtime),
+            (original, apply_report, apply_manifest, apply_runtime),
+        ):
+            report["provenance"]["model_runtime_identity"] = checked_runtime(
+                runtime, path, manifest, report
+            )
+            if any(
+                row.get("diagnostics", {}).get("mode") != "model"
+                for row in report["runs"]
+            ):
+                raise ValueError(
+                    "model calibration requires per-entity model diagnostics"
+                )
+        if (
+            before["provenance"]["model_runtime_identity"]
+            != original["provenance"]["model_runtime_identity"]
+        ):
+            raise ValueError("fitting and application model runtime identities differ")
+    elif fit_runtime is not None or apply_runtime is not None:
+        raise ValueError("grounded calibration does not accept model runtime records")
     from .__main__ import provenance
 
     current = provenance()
@@ -288,6 +347,11 @@ def calibrate(
         "fit_manifest_sha256": hashlib.sha256(fit_manifest.read_bytes()).hexdigest(),
         "fit_groups": sorted({c.group for c in fit}),
         "prediction_provenance": before["provenance"],
+        "runtime_record_sha256": {
+            name: hashlib.sha256(path.read_bytes()).hexdigest()
+            for name, path in (("fit", fit_runtime), ("apply", apply_runtime))
+            if path is not None
+        },
         "calibrator_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "note": "Event-block coverage relies on exchangeable event residuals within each declared family/quantity/horizon. Temporal ordering prevents outcome leakage but does not prove exchangeability. Not an official NLI or leaderboard result.",
     }
@@ -345,6 +409,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("fit-manifest", "fit-report", "apply-manifest", "apply-report", "out"):
         parser.add_argument("--" + name, type=Path, required=True)
+    parser.add_argument("--fit-runtime", type=Path)
+    parser.add_argument("--apply-runtime", type=Path)
     args = parser.parse_args(argv)
     try:
         report = calibrate(
@@ -353,6 +419,8 @@ def main(argv: list[str] | None = None) -> int:
             args.apply_manifest,
             args.apply_report,
             args.out,
+            fit_runtime=args.fit_runtime,
+            apply_runtime=args.apply_runtime,
         )
         print(json.dumps(report["summary"], indent=2))
         return (

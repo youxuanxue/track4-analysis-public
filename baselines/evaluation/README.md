@@ -171,9 +171,9 @@ descriptors but does not provide a production NLI judge.
 
 [`calibration.py`](calibration.py) fits interval radii on earlier training-event residuals
 and writes adjusted answers for later calibration events. This is an external development
-workflow for the deterministic grounded baseline; it does not alter the submission defaults
-or ship fitted outcome-derived parameters in the public image. Model reports, test splits,
-overlapping windows, incomplete runs and mismatched prediction settings are refused.
+workflow for frozen local predictions; it does not alter the submission defaults
+or ship fitted outcome-derived parameters in the public image. Unverified model reports, test
+splits, overlapping windows, incomplete runs and mismatched prediction settings are refused.
 
 First run the unchanged grounded policy on separate train and calibration manifests with
 the same code, toolkit and retrieval settings. Reports predating recorded prediction settings
@@ -202,3 +202,19 @@ interval-width diagnostics accompany the new report. Fitted radii, original answ
 remain outside every public worktree. Changing intervals also changes the submitted hypothesis:
 historical citations alone do not establish future bounds, and production NLI must be measured
 separately. Local coverage on the calibration split is not a held-out or leaderboard claim.
+
+For model predictions, also supply `--fit-runtime` and `--apply-runtime` with external local
+launcher records. [`runtime.py`](runtime.py) defines their validation: each completed record
+binds the exact report and manifest hashes to a clean code revision, a local launch command,
+the runtime executable, weight shards, launcher identity, host and generation settings. The
+executable and weight files are rehashed. Only the loopback port may vary between launches;
+changing the context, backend or any other recorded setting requires new matching runs.
+The model reports must include complete per-entity diagnostics with no grounded fallbacks.
+Old launcher records lacking binary/report hashes cannot be used and must be regenerated.
+
+These records are attestations from a trusted local launcher that owns the server, not
+cryptographic proof of what an arbitrary remote service executed. The launcher must record
+the actual command and effective settings, seal report hashes after evaluation, and mark
+completion only after the owned processes have exited successfully. Calibration never
+reuses grounded residuals for model predictions. Its artifact retains the runtime record
+hashes and common model identity; it remains a development experiment outside the image.
