@@ -84,6 +84,9 @@ keep training diagnostics separate from held-out performance.
 
 `official_score` remains null and `rankable` remains false for all local reports.
 `nli_faithfulness` remains null under smoke; `lexical_faithfulness` is a diagnostic proxy.
+When numeric truth and aligned predictions exist, `numeric_errors` records raw target-scale
+absolute and signed errors. These diagnostics keep differences visible when the official
+normalized quality clips to zero; they never replace the official scoring function.
 Production mode requires the organizer's configured judge and external outcomes and never
 downgrades to smoke. The runner stops before inference when outcomes are undeclared or the
 judge cannot be constructed.
@@ -92,3 +95,55 @@ Provenance includes the workspace source digest, Git revision and dirty state, P
 installed scorer identity, and the actual shared-toolkit source digest. A package version
 without a verified build stamp is identified as such. The Docker image ID identifies
 participant runtime bytes separately from evaluator workspace bytes.
+
+## Historical snapshots and evidence review
+
+The development-only [historical builder](./historical.py) reads an external event specification
+and retrieves Treasury observations from ALFRED. It requires `curl` for acquisition; cached
+snapshots can subsequently be rebuilt offline. Every series is requested separately, and its
+returned column must carry the exact requested vintage date. This matters because a multi-series
+request can silently return the latest vintage for some columns. Downloaded bytes, source URLs,
+vintages and retrieval times are retained outside the public repository.
+
+The specification has `version: 1` and an `events` array. Each event declares `id`, `cutoff`,
+`resolution`, and `split` (train, calibration or test). The builder refuses overlapping event
+windows and split leakage before downloading. It creates classification, regression and ranking
+views of each event, with the same event group: those views are correlated, not additional
+independent samples. This is a single-domain rates benchmark, not a proxy for all hidden families.
+The corpus is a deterministic extract of historical observations, not a financial forecast.
+Only prediction inputs go under each unit; future snapshots and outcomes stay outside those units.
+
+```bash
+python -m baselines.evaluation.historical \
+  --spec /private/evaluation/events.json \
+  --cache /private/evaluation/alfred-cache \
+  --out /private/evaluation/new-benchmark
+
+python -m baselines.evaluation.review \
+  --report /private/evaluation/run/report.json \
+  --manifest /private/evaluation/new-benchmark/manifest.json \
+  --out /private/evaluation/new-review
+
+python -m baselines.evaluation.compare \
+  --before /private/evaluation/baseline/report.json \
+  --after /private/evaluation/candidate/report.json \
+  --out /private/evaluation/comparison.json
+```
+
+Use `--units units` instead of `--manifest` to audit public runs. The review packet contains the
+canonical hypothesis and resolved citation text for every entity. Its adjacent annotations start
+as `unreviewed`; passing date/offset checks never creates semantic approval. Edited annotations
+can be passed back with `--annotations` into a new review directory. A completed judgment requires
+an attributed reviewer and reason, and annotations bind to the exact packet digest. Automated
+or model-assisted judgments must be attributed as such. Historical reports without an original
+answer hash explicitly record that limitation; their hypotheses and citation positions are checked.
+
+Comparisons require identical complete case/seed rosters, input and truth digests, split/group
+assignments, judge identity and toolkit bytes. Failed units stay in the mean. Bootstrap intervals
+resample event groups, averaging correlated views and seeds inside each group. Inspect the test
+split separately; the overall result includes every supplied split. Neither a smoke score nor
+a small single-domain bootstrap interval establishes production faithfulness or generalization.
+
+Toolkit tag `v2.4.0` still reports package version `2.3.1`; use the recorded source digest and
+Git installation identity to distinguish it. The updated tag allows model-free `models: []`
+descriptors but does not provide a production NLI judge.

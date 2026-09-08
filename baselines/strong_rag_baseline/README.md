@@ -87,9 +87,9 @@ participant image does not start vLLM or ship full reader weights. This supersed
 full-weights description still present in `SUBMISSION_CLI.md`.
 
 The [descriptor guide](https://github.com/Agenthon-2026/Agenthon2026-public/blob/main/starter-packs/track4/SUBMISSION-DESCRIPTOR.md)
-also documents a model-free deterministic declaration using the legacy `byo-small` category,
-`access: local`, and an honest `none-deterministic-engine` model entry. Choose it only for a
-submission that makes no model calls. This baseline's default endpoint path is an `api` entry.
+also documents a model-free deterministic declaration using the legacy `byo-small` category
+and `models: []` (C5 1.1.0, toolkit tag `v2.4.0`). Use it only when no model is used;
+do not invent a placeholder model entry. This baseline's default endpoint path is an `api` entry.
 
 ## Design
 

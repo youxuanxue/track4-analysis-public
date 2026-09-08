@@ -329,8 +329,8 @@ The default house-endpoint path is `api`. Official BYO supplies one LoRA adapter
 for the organizer-hosted Nemotron base; the organizer extracts it and starts the server.
 Participants use the supplied endpoint and model name, and do not start vLLM themselves.
 The older full-weights wording in `SUBMISSION_CLI.md` conflicts with that newer guidance.
-A submission with no model calls can still declare a deterministic engine using the documented
-legacy `byo-small`, `access: local`, and `none-deterministic-engine` entry.
+A submission using no model declares `models: []` under C5 1.1.0 in toolkit tag `v2.4.0`;
+the documented category remains legacy `byo-small`. Do not invent a placeholder model entry.
 `--local-llama` remains a development experiment only.
 
 ---

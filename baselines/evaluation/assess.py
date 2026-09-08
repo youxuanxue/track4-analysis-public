@@ -7,6 +7,7 @@ remains importable in the stdlib-only CI job and submission environment.
 from __future__ import annotations
 
 from pathlib import Path
+from statistics import mean
 from typing import Any
 
 
@@ -76,6 +77,7 @@ def _hypothesis_records(ctx: dict[str, Any]) -> list[dict[str, Any]]:
                 "doc_date": None,
                 "span_valid": False,
                 "embargo_clean": False,
+                "text": None,
             }
             try:
                 doc = corpus.resolve(citation.get("doc_id"))
@@ -95,6 +97,8 @@ def _hypothesis_records(ctx: dict[str, Any]) -> list[dict[str, Any]]:
                 and 0 <= start < end <= len(text)
                 and bool(text[start:end].strip())
             )
+            if record["span_valid"]:
+                record["text"] = text[start:end]
             citations.append(record)
         records.append(
             {
@@ -104,6 +108,31 @@ def _hypothesis_records(ctx: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return records
+
+
+def _numeric_errors(ctx: dict[str, Any], realized: dict | None) -> dict | None:
+    """Keep raw errors visible when official normalized quality clips to zero."""
+    from math import isfinite
+    from qfbench2_track_analysis.scoring import _true_vectors
+
+    aligned = ctx.get("_aligned")
+    if realized is None or aligned is None:
+        return None
+    _, truth = _true_vectors(realized, ctx["_roster"])
+    if truth is None or not all(isfinite(value) for value in aligned.pred_values):
+        return None
+    errors = [
+        float(prediction - actual)
+        for prediction, actual in zip(aligned.pred_values, truth)
+    ]
+    if not all(isfinite(value) for value in errors):
+        return None
+    return {
+        "mae": mean(abs(value) for value in errors),
+        "mean_signed_error": mean(errors),
+        "entity_errors": dict(zip(aligned.entity_ids, errors)),
+        "note": "Raw target-scale diagnostics only; the official scorer owns normalized quality.",
+    }
 
 
 def assess_unit(
@@ -183,6 +212,7 @@ def assess_unit(
         "development_score": development_score,
         "predictive_quality": verdict.detail.get("predictive_quality"),
         "interval_coverage": verdict.detail.get("interval_coverage"),
+        "numeric_errors": _numeric_errors(ctx, realized),
         "nli_faithfulness": faithfulness if profile == "production" else None,
         "lexical_faithfulness": faithfulness if profile == "smoke" else None,
         "faithfulness_gate_applied": ctx.get("_faithfulness_gate_applied", False),

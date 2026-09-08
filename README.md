@@ -189,8 +189,9 @@ the harness (`g2`).
    This differs from the older full-weights description in `SUBMISSION_CLI.md`.
 
 The [descriptor guide](https://github.com/Agenthon-2026/Agenthon2026-public/blob/main/starter-packs/track4/SUBMISSION-DESCRIPTOR.md)
-also permits a model-free deterministic declaration using legacy `byo-small`, `access: local`,
-and an honest `none-deterministic-engine` entry. An agent that calls the house endpoint uses `api`.
+also permits a model-free deterministic declaration using legacy `byo-small` and `models: []`
+with toolkit tag `v2.4.0` (C5 1.1.0). Do not invent a placeholder model entry.
+An agent that calls the house endpoint uses `api` and declares the actual model.
 
 At scoring time the container sees: `HTTP_PROXY`/`HTTPS_PROXY` pointing at the audited proxy,
 `MODEL_ENDPOINT` pointing at the organizer-hosted OpenAI-compatible endpoint and `MODEL_NAME`
@@ -237,7 +238,7 @@ a ceiling rather than a floor (`nemoguardrails` and `nvidia-nat` both pin `<3.14
 Track 4 inherits scoring utilities from the shared toolkit repository. Install them with:
 
 ```bash
-pip install "qfbench2-common @ git+https://github.com/Agenthon-2026/Agenthon2026-public.git@v2.3.1#subdirectory=common"
+pip install "qfbench2-common @ git+https://github.com/Agenthon-2026/Agenthon2026-public.git@v2.4.0#subdirectory=common"
 ```
 
 > **Pin a tag, never a branch.** Installing from a moving ref means your local result and your
@@ -388,7 +389,7 @@ the treatment of an inadmissible unit in a scored run.
 # baselines/requirements.txt is comments only -- the minimal baseline is standard library
 # by design -- so this line installs nothing. It is here because step 4 and step 5 need the
 # shared toolkit, which brings jsonschema with it.
-pip install "qfbench2-common @ git+https://github.com/Agenthon-2026/Agenthon2026-public.git@v2.3.1#subdirectory=common"
+pip install "qfbench2-common @ git+https://github.com/Agenthon-2026/Agenthon2026-public.git@v2.4.0#subdirectory=common"
 
 # 2. Run the RAG baseline
 python baselines/baseline_agent.py \
