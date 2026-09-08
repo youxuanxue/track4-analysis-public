@@ -8,10 +8,62 @@ It is a last-line assertion — grounding already happened in the agent.
 
 from __future__ import annotations
 
+from statistics import median
+
 from .agent import EntityResult
 from .indexer import IndexedCorpus
 from .schema import target_type
 from .validation import validate_answer
+
+
+def _shrink_regression_predictions(
+    predictions: list[dict], kind: str | None, results: list[EntityResult]
+) -> list[dict]:
+    """Shrink extreme cross-sectional outliers towards the median for ungrounded/model estimates."""
+    if kind != "regression" or len(predictions) < 3:
+        return predictions
+    shrunk_entities = {
+        r.prediction["entity_id"]
+        for r in results
+        if "model" in (r.rationale or "").lower()
+    }
+    if len(shrunk_entities) < 3:
+        return predictions
+    raw_points = [
+        p.get("point_forecast")
+        for p in predictions
+        if p.get("entity_id") in shrunk_entities
+    ]
+    if not all(
+        isinstance(p, (int, float)) and not isinstance(p, bool)
+        for p in raw_points
+    ):
+        return predictions
+    pts = [float(p) for p in raw_points]
+    med = median(pts)
+    deviations = [abs(p - med) for p in pts]
+    mad = median(deviations)
+    if mad < 1e-9:
+        return predictions
+    max_dev = 2.5 * mad
+    updated = []
+    for pred in predictions:
+        new_p = dict(pred)
+        eid = new_p.get("entity_id")
+        if eid in shrunk_entities:
+            pt = float(new_p["point_forecast"])
+            clamped = max(med - max_dev, min(med + max_dev, pt))
+            shrunk = 0.85 * clamped + 0.15 * med
+            new_p["point_forecast"] = round(shrunk, 4)
+            if "interval" in new_p and isinstance(new_p["interval"], dict):
+                lo = new_p["interval"].get("lo")
+                hi = new_p["interval"].get("hi")
+                if lo is not None and new_p["point_forecast"] < lo:
+                    new_p["interval"]["lo"] = new_p["point_forecast"]
+                if hi is not None and new_p["point_forecast"] > hi:
+                    new_p["interval"]["hi"] = new_p["point_forecast"]
+        updated.append(new_p)
+    return updated
 
 
 def build_answer(
@@ -20,7 +72,9 @@ def build_answer(
     total_dropped = sum(r.dropped_claims for r in results)
     total_claims = sum(len(r.prediction["claims"]) for r in results)
     kind = target_type(task)
-    predictions = [dict(r.prediction) for r in results]
+    predictions = _shrink_regression_predictions(
+        [dict(r.prediction) for r in results], kind, results
+    )
     answer: dict = {
         "task_id": task.get("task_id", ""),
         "schema_version": task.get("schema_version", "3"),

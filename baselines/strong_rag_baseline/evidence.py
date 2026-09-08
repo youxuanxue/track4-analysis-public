@@ -241,6 +241,11 @@ def prepare_evidence(
         snippet = text[start:end]
         if not snippet.strip() or _ADMINISTRATIVE.fullmatch(snippet.strip()):
             continue
+        if (
+            "securities and exchange commission" in snippet.lower()
+            and "exact name of registrant" in snippet.lower()
+        ):
+            continue
         if tuple(re.findall(r"\w+", snippet.lower())) in alias_tokens:
             continue
         # Cropping cannot turn a text-bound excerpt into an unbound excerpt.
