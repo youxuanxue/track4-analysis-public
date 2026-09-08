@@ -108,6 +108,12 @@ def build_user_prompt(task: dict, entity: dict, retrieved: list[Chunk]) -> str:
         if spec.requires_point
         else "POINT FORECAST: may be null for this label-only task."
     )
+    if kind == "ranking":
+        lines.append(
+            "RANKING TASK INSTRUCTION: Output your continuous numeric estimate of the target metric in `point_forecast`. "
+            "The scorer ranks entities by this predicted value, where LARGER VALUES correspond to HIGHER RANKS (rank 1 = highest value). "
+            "Do NOT output rank integers (1, 2, 3...) in `point_forecast`!"
+        )
     if spec.mode == "probability":
         lines.append(
             "Predict the probability of the target event on the 0 to 1 scale, not confidence in your selected label."

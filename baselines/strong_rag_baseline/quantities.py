@@ -163,15 +163,37 @@ class TargetSpec:
     def interval(self, point: float) -> tuple[float, float]:
         if self.mode == "probability":
             return self.lower or 0.0, self.upper if self.upper is not None else 1.0
-        # These scales are baseline assumptions, never an empirical coverage claim.
-        half = {
-            "change_bps": 100.0,
-            "growth_pct": 100.0,
-            "change_pct_oi": 100.0,
-            "return_pct": 100.0,
-            "percent": 1.0,
-        }.get(self.mode, max(1.0, abs(point)))
-        lo, hi = point - half, point + half
+        if self.kind == "classification":
+            if "beat" in self.labels:
+                band = max(abs(point) * 0.10, 0.15)
+                lo, hi = point - band, point + band
+            elif "direction" in self.name or self.labels == ("up", "down"):
+                half = max(1.0, abs(point) * 0.02)
+                lo, hi = point - half, point + half
+            else:
+                half = max(1.0, abs(point) * 0.10)
+                lo, hi = point - half, point + half
+        elif self.mode == "change_bps":
+            half = 0.05 if abs(point) < 1e-6 else max(25.0, abs(point) * 0.35)
+            lo, hi = point - half, point + half
+        elif self.mode == "ratio":
+            half = max(0.20, abs(point) * 0.08)
+            lo, hi = point - half, point + half
+        elif self.mode == "change_pct_oi":
+            half = max(3.0, abs(point) * 0.40)
+            lo, hi = point - half, point + half
+        elif self.mode == "growth_pct":
+            half = 5.0 if abs(point) < 1e-6 else max(5.0, abs(point) * 0.25)
+            lo, hi = point - half, point + half
+        elif self.mode == "return_pct":
+            half = 5.0
+            lo, hi = point - half, point + half
+        elif self.mode == "percent":
+            half = 0.5 if abs(point) < 1e-6 else max(0.5, abs(point) * 0.25)
+            lo, hi = point - half, point + half
+        else:
+            half = max(1.0, abs(point) * 0.25)
+            lo, hi = point - half, point + half
         if self.lower is not None:
             lo = max(self.lower, lo)
         if self.upper is not None:
