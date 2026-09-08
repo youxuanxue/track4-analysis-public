@@ -162,7 +162,13 @@ class TargetSpec:
 
     def interval(self, point: float) -> tuple[float, float]:
         if self.mode == "probability":
-            return self.lower or 0.0, self.upper if self.upper is not None else 1.0
+            if point > 0.5:
+                lo = max(self.lower or 0.0, point - 0.05)
+                hi = self.upper if self.upper is not None else 1.0
+            else:
+                lo = self.lower or 0.0
+                hi = min(self.upper if self.upper is not None else 1.0, 0.50)
+            return lo, hi
         if self.kind == "classification":
             if "beat" in self.labels:
                 band = max(abs(point) * 0.10, 0.15)

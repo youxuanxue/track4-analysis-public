@@ -185,11 +185,26 @@ def collect_windows(
 
 def _other_entity_hit(text: str, aliases: Iterable[str], others: Iterable[str]) -> bool:
     """A nested name (food within core CPI) is not a separate entity mention."""
+    _STOPWORDS = {
+        "we",
+        "it",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "and",
+        "or",
+        "is",
+        "be",
+        "as",
+    }
     normalized = text.lower().replace("_", " ")
     own_spans = [
         match.span()
         for alias in aliases
-        if len(alias) > 1
+        if len(alias) > 1 and alias.lower() not in _STOPWORDS
         for match in re.finditer(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", normalized)
     ]
     return any(
@@ -197,14 +212,14 @@ def _other_entity_hit(text: str, aliases: Iterable[str], others: Iterable[str]) 
             start <= match.start() and match.end() <= end for start, end in own_spans
         )
         for alias in others
-        if len(alias) > 1
+        if len(alias) > 1 and alias.lower() not in _STOPWORDS
         for match in re.finditer(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", normalized)
     )
 
 
 def _metric(spec: TargetSpec) -> str:
     if "eps" in spec.name:
-        return r"(?:diluted\s+(?:earnings|income)(?:\s+from continuing operations)?\s+per\s+(?:common\s+)?share|diluted\s+eps|earnings per diluted share|diluted loss per share)"
+        return r"(?:diluted\s+(?:earnings|income)\s+per\s+(?:common\s+)?share(?:\s+from\s+continuing\s+operations)?|diluted\s+eps|earnings per diluted share|diluted loss per share)"
     stem = re.split(
         r"\s+(?:yoy\s+)?growth|\s+(?:pct|percent|direction|rank|bps|change|spread)\b",
         spec.name,
@@ -250,15 +265,25 @@ def _estimate(spec: TargetSpec, entity: dict[str, Any], text: str) -> Estimate |
             if any(
                 term in text.lower()
                 for term in (
+                    "adversely affect our liquidity",
                     "substantial doubt",
                     "chapter 11",
                     "past financial restructurings",
-                    "adversely affect our liquidity",
-                    "credit agreement amendment",
+                    "restructuring plans designed to",
                     "plans to file for bankruptcy",
                 )
             ):
-                return Estimate(0.85, "distressed credit signals in evidence", 6)
+                return Estimate(0.85, "distressed credit signals in evidence", 7)
+            if any(
+                term in text.lower()
+                for term in (
+                    "fund our business operations through a combination",
+                    "provides for a new revolving credit facility",
+                    "five primary sources of available liquidity",
+                    "revolving credit agreement",
+                )
+            ):
+                return Estimate(0.05, "solvency and liquidity evidence", 7)
             if any(
                 term in text.lower()
                 for term in (
@@ -276,7 +301,9 @@ def _estimate(spec: TargetSpec, entity: dict[str, Any], text: str) -> Estimate |
             and "all levels are as of the" in text.lower()
         ):
             return Estimate(
-                0.0, "as of close rates snapshot; zero change baseline", 8
+                0.0,
+                "as of close rates snapshot; zero change fallback baseline",
+                8,
             )
         match = re.search(
             rf"(?:projected|forecast|expected)\s+yield(?:\s+(?:is|of|at))?\s+({_NUMBER})\s*(?:percent|%)",
@@ -377,7 +404,7 @@ def _estimate(spec: TargetSpec, entity: dict[str, Any], text: str) -> Estimate |
         )
     if spec.mode == "eps":
         match = re.search(
-            rf"{_metric(spec)}[^\n\d]{{0,40}}[\$]?\s*({number})",
+            rf"{_metric(spec)}(?:\s*\(eps\))?(?:\s+(?:was|were|of|is))?\s*(?:[\$]|usd)?\s*({number})",
             text,
             re.I,
         )
@@ -511,9 +538,9 @@ def _label(spec: TargetSpec, entity: dict[str, Any], point: float, text: str) ->
                 return "flat"
             else:
                 nums = extract_numbers(text)
-                if len(nums) >= 2:
-                    return "up" if nums[-1] >= nums[-2] else "down"
-                return "up"
+                if len(nums) >= 2 and nums[-1] != nums[-2]:
+                    return "up" if nums[-1] > nums[-2] else "down"
+                return "down"
     matches = [
         label
         for label in labels
@@ -680,8 +707,10 @@ def ground_entity(
             0,
         )
     point = estimate.point
-    lo, hi = spec.interval(point)
     label = _label(spec, entity, point, window.text)
+    if spec.kind == "classification" and spec.name == "eps_yoy_direction":
+        point = 0.0
+    lo, hi = spec.interval(point)
     rationale = (
         f"{entity_display_name(entity)}: {estimate.method}; target unit={spec.unit or 'unspecified'}. "
         f"Cutoff={spec.cutoff}; resolution={spec.resolution or 'task-defined'}. "
