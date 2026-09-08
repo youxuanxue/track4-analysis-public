@@ -1,10 +1,8 @@
 """Prompt construction for the strong RAG baseline.
 
-One prompt per entity. The model sees the entity's tabular features and the
-top-K retrieved excerpts, each tagged with its ``doc_id``, and must return a
-single JSON object. Evidence quotes are required to be verbatim substrings of
-the provided excerpts. The agent resolves exact character offsets and rejects
-the entire model prediction if any quote cannot be located.
+One prompt per entity. The model selects identifiers from the current evidence
+packet. The program resolves their exact source offsets and still rejects invalid
+predictions atomically; identifiers do not prove semantic support.
 """
 
 from __future__ import annotations
@@ -12,20 +10,19 @@ from __future__ import annotations
 import json
 
 from .indexer import Chunk
+from .evidence import evidence_references
 from .quantities import TargetSpec
 
 SYSTEM_PROMPT = """\
 You are a careful financial analyst. You predict a target for one entity using ONLY the
 evidence excerpts provided — no outside knowledge about events after the stated cutoff date.
-You must respond with a single JSON object and nothing else. Every evidence quote you return
-must be copied verbatim, character for character, from one of the provided excerpts."""
+You must respond with a single JSON object and nothing else. Cite only evidence IDs supplied
+in this request. Do not reproduce quotes or invent IDs. Select the strongest relevant evidence,
+not filing directories or signatures. A historical observation is not a realized future outcome.
+Evidence must concern this entity, the correct period, metric and units."""
 
 _TARGET_INSTRUCTIONS = {
-    "classification": (
-        'Set "label" to exactly one of the allowed labels. '
-        'Set "point_forecast" to your best numeric estimate of the underlying quantity '
-        "if one is defined for this task, else null."
-    ),
+    "classification": ('Set "label" to exactly one of the allowed labels. '),
     "regression": (
         'Set "point_forecast" to your numeric prediction of the target. '
         '"label" may be null.'
@@ -35,6 +32,56 @@ _TARGET_INSTRUCTIONS = {
         'Do not emit "rank"; ordering is derived across all entity predictions.'
     ),
 }
+
+
+def build_response_schema(task: dict, entity: dict, retrieved: list[Chunk]) -> dict:
+    spec = TargetSpec.from_task(task, entity)
+    number: dict = {"type": "number"}
+    if spec.lower is not None:
+        number["minimum"] = spec.lower
+    if spec.upper is not None:
+        number["maximum"] = spec.upper
+    point = dict(number)
+    if not spec.requires_point:
+        point["type"] = ["number", "null"]
+    return {
+        "type": "object",
+        "properties": {
+            "label": {"type": "string", "enum": list(spec.labels)}
+            if spec.kind == "classification"
+            else {"type": "null"},
+            "point_forecast": point,
+            "interval": {
+                "type": "object",
+                "properties": {
+                    "level": {"type": "number", "const": spec.level},
+                    "lo": dict(number),
+                    "hi": dict(number),
+                },
+                "required": ["level", "lo", "hi"],
+                "additionalProperties": False,
+            },
+            "evidence": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 4,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "evidence_id": {
+                            "type": "string",
+                            "enum": list(evidence_references(retrieved)),
+                        },
+                        "claim": {"type": "string", "minLength": 1, "maxLength": 4000},
+                    },
+                    "required": ["evidence_id", "claim"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["label", "point_forecast", "interval", "evidence"],
+        "additionalProperties": False,
+    }
 
 
 def build_user_prompt(task: dict, entity: dict, retrieved: list[Chunk]) -> str:
@@ -55,6 +102,15 @@ def build_user_prompt(task: dict, entity: dict, retrieved: list[Chunk]) -> str:
         lines.append(f"TARGET DOMAIN: minimum={spec.lower}, maximum={spec.upper}")
     if labels:
         lines.append(f"ALLOWED LABELS: {', '.join(labels)}")
+    lines.append(
+        "POINT FORECAST: a finite number is required; never null."
+        if spec.requires_point
+        else "POINT FORECAST: may be null for this label-only task."
+    )
+    if spec.mode == "probability":
+        lines.append(
+            "Predict the probability of the target event on the 0 to 1 scale, not confidence in your selected label."
+        )
     level = spec.level
 
     lines.append("\nENTITY:")
@@ -64,8 +120,10 @@ def build_user_prompt(task: dict, entity: dict, retrieved: list[Chunk]) -> str:
         lines.append(f"  {key}: {value}")
 
     lines.append("\nEVIDENCE EXCERPTS (cite only these):")
-    for i, chunk in enumerate(retrieved, 1):
-        lines.append(f"[{i}] doc_id={chunk.doc_id} (doc_date={chunk.doc_date})")
+    for evidence_id, chunk in evidence_references(retrieved).items():
+        lines.append(
+            f"[{evidence_id}] doc_id={chunk.doc_id} (doc_date={chunk.doc_date})"
+        )
         lines.append(f'"""{chunk.text}"""')
 
     schema = {
@@ -78,9 +136,8 @@ def build_user_prompt(task: dict, entity: dict, retrieved: list[Chunk]) -> str:
         },
         "evidence": [
             {
-                "doc_id": "doc_id of the excerpt the quote comes from",
-                "quote": "verbatim substring copied from that excerpt",
-                "claim": "one factual sentence the quote directly supports",
+                "evidence_id": "one evidence ID from this request",
+                "claim": "one factual sentence directly supported by this excerpt",
             }
         ],
     }
@@ -95,8 +152,9 @@ def build_user_prompt(task: dict, entity: dict, retrieved: list[Chunk]) -> str:
         f'The "interval" must be your {int(level * 100)}% prediction interval for the '
         "numeric target: wide enough that you expect the realized value to fall inside it "
         f"{int(level * 100)}% of the time. Its bounds must be finite, ordered, and on the target scale. "
-        "Give 1 to 4 evidence entries. Every quote must support this entity's predicted label, "
+        "Use one or two strongest, non-redundant evidence entries. Each must support this entity's predicted label, "
         "target value and interval, including the correct period, units and comparisons. "
-        "A number merely appearing in a quote is not sufficient. Never invent evidence."
+        "A number merely appearing in an excerpt is not sufficient. Never invent evidence. "
+        "Return evidence_id and claim only; the program supplies the exact source citation."
     )
     return "\n".join(lines)

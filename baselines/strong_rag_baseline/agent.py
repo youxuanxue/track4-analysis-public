@@ -11,17 +11,13 @@ from dataclasses import dataclass
 from typing import Literal
 
 from .client import ModelClient
+from .evidence import evidence_references, prepare_evidence
 from .indexer import Chunk, IndexedCorpus
-from .prompts import SYSTEM_PROMPT, build_user_prompt
+from .prompts import SYSTEM_PROMPT, build_response_schema, build_user_prompt
 from .reasoner import ground_entity, prediction_from_grounded
 from .retriever import BM25Index
-from .schema import interval_level, legal_labels, target_name, target_type
+from .schema import interval_level, target_type
 from .validation import validate_prediction
-
-#: Query terms appended to every entity query — steer retrieval toward result
-#: and outlook language. Target-name / label tokens from the task are appended
-#: per entity so an unpublished family still retrieves its own vocabulary.
-_QUERY_SUFFIX = "results revenue earnings guidance outlook growth"
 
 FallbackReason = Literal[
     "forced_grounded",
@@ -60,19 +56,6 @@ def _parse_model_json(raw: str) -> dict:
     return parsed
 
 
-def _entity_query(entity: dict, task: dict | None = None) -> str:
-    parts = [
-        str(entity.get(key, ""))
-        for key in ("name", "entity_id", "sector", "series_id", "description")
-    ]
-    if task:
-        tname = target_name(task)
-        if tname and tname != "outcome":
-            parts.append(tname)
-        parts.extend(legal_labels(task))
-    return " ".join(p for p in parts if p) + " " + _QUERY_SUFFIX
-
-
 def _ground_claims(
     evidence: list[dict],
     corpus: IndexedCorpus,
@@ -84,13 +67,25 @@ def _ground_claims(
     claims: list[dict] = []
     dropped = 0
     retrieved_by_doc: dict[str, list[Chunk]] = {}
+    references = evidence_references(retrieved)
     for chunk in retrieved:
         retrieved_by_doc.setdefault(chunk.doc_id, []).append(chunk)
 
     for item in evidence:
+        reference = None
         if not isinstance(item, dict):
             dropped += 1
             continue
+        if "evidence_id" in item:
+            evidence_id = item["evidence_id"]
+            chunk = (
+                references.get(evidence_id) if isinstance(evidence_id, str) else None
+            )
+            if chunk is None or set(item) != {"evidence_id", "claim"}:
+                dropped += 1
+                continue
+            reference = chunk
+            item = {"doc_id": chunk.doc_id, "quote": chunk.text, "claim": item["claim"]}
         doc_id = item.get("doc_id", "")
         quote = item.get("quote")
         claim_text = item.get("claim")
@@ -105,7 +100,9 @@ def _ground_claims(
             dropped += 1
             continue
         span = None
-        for chunk in retrieved_by_doc.get(doc_id, []):
+        for chunk in (
+            [reference] if reference is not None else retrieved_by_doc.get(doc_id, [])
+        ):
             offset = chunk.text.find(quote)
             if offset >= 0:
                 start = chunk.span_start + offset
@@ -158,10 +155,21 @@ def run_entity(
     client: ModelClient,
     top_k: int,
 ) -> EntityResult:
-    retrieved = [s.chunk for s in index.search(_entity_query(entity, task), top_k)]
+    retrieved = prepare_evidence(task, entity, index, corpus, top_k=top_k).chunks
     failure_stage: FallbackReason = "model_request"
     try:
-        raw = client.complete(SYSTEM_PROMPT, build_user_prompt(task, entity, retrieved))
+        if not retrieved:
+            failure_stage = "model_evidence"
+            raise ValueError("no entity-bound evidence available")
+        prompt = build_user_prompt(task, entity, retrieved)
+        structured = getattr(client, "complete_json", None)
+        raw = (
+            structured(
+                SYSTEM_PROMPT, prompt, build_response_schema(task, entity, retrieved)
+            )
+            if callable(structured)
+            else client.complete(SYSTEM_PROMPT, prompt)
+        )
         failure_stage = "model_json"
         parsed = _parse_model_json(raw)
         kind = target_type(task)

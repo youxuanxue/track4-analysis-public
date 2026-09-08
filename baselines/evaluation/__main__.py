@@ -177,7 +177,8 @@ def run_container(
         docker("rm", "--force", container)
 
 
-def evidence_ledger(stage: Path) -> dict:
+def evidence_ledger(stage: Path, *, model: bool = False) -> dict:
+    from baselines.strong_rag_baseline.config import Config
     from baselines.strong_rag_baseline.evidence import prepare_evidence
     from baselines.strong_rag_baseline.indexer import build_index
     from baselines.strong_rag_baseline.retriever import BM25Index
@@ -185,11 +186,18 @@ def evidence_ledger(stage: Path) -> dict:
     task = json.loads((stage / "task.json").read_text(encoding="utf-8"))
     corpus = build_index(stage / "corpus")
     index = BM25Index(corpus.chunks, task["cutoff_date"])
+    top_k = Config.from_env().top_k if model else 8
     return {
         "task_id": task["task_id"],
-        "used_for_prediction": False,
+        "used_for_prediction": model,
         "entities": [
-            prepare_evidence(task, entity, index, corpus).ledger
+            prepare_evidence(
+                task,
+                entity,
+                index,
+                corpus,
+                top_k=top_k,
+            ).ledger
             for entity in task["entities"]
         ],
     }
@@ -273,7 +281,7 @@ def main(argv: list[str] | None = None) -> int:
                 with tempfile.TemporaryDirectory(prefix="t4-evaluation-input-") as temp:
                     stage = Path(temp) / "input"
                     digest = stage_inputs(case.unit_dir, stage)
-                    evidence = evidence_ledger(stage)
+                    evidence = evidence_ledger(stage, model=args.mode == "model")
                     write_json(output / "evidence.json", evidence)
                     preparation_elapsed = time.monotonic() - started
                     started = time.monotonic()
