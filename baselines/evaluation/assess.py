@@ -129,11 +129,15 @@ def _numeric_errors(
     ]
     if not all(isfinite(value) for value in errors):
         return None
+    truth_mean = mean(truth)
     return {
         "mae": mean(abs(value) for value in errors),
+        "cross_section_mean_baseline_mae": mean(
+            abs(value - truth_mean) for value in truth
+        ),
         "mean_signed_error": mean(errors),
         "entity_errors": dict(zip(aligned.entity_ids, errors)),
-        "note": "Raw target-scale diagnostics only; the official scorer owns normalized quality.",
+        "note": "Raw target-scale diagnostics only; the baseline uses the realized cross-section mean, unavailable to the predictor. The official scorer owns normalized quality.",
     }
 
 

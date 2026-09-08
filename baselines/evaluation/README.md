@@ -87,6 +87,9 @@ keep training diagnostics separate from held-out performance.
 When numeric truth and aligned predictions exist, `numeric_errors` records raw target-scale
 absolute and signed errors. These diagnostics keep differences visible when the official
 normalized quality clips to zero; they never replace the official scoring function.
+The diagnostics also expose the MAE of the realized cross-section mean, the reference used
+by regression skill. That mean is known only after resolution and is not an available
+forecasting policy. A small raw MAE can still yield zero skill against this reference.
 Production mode requires the organizer's configured judge and external outcomes and never
 downgrades to smoke. The runner stops before inference when outcomes are undeclared or the
 judge cannot be constructed.
@@ -112,6 +115,22 @@ views of each event, with the same event group: those views are correlated, not 
 independent samples. This is a single-domain rates benchmark, not a proxy for all hidden families.
 The corpus is a deterministic extract of historical observations, not a financial forecast.
 Only prediction inputs go under each unit; future snapshots and outcomes stay outside those units.
+
+For a separate inflation benchmark, set the external specification's `family` to `cpi_mom`
+and add `target_month` (an ISO date on the first of the month) to each event. The supported
+seasonally adjusted series are declared in [`historical.py`](./historical.py). Each target
+is the month-over-month percent change calculated from two index levels in the resolution
+vintage; it is **not a certified first-release value**. Both levels use that same vintage,
+so a revised denominator is handled consistently. The target month must be absent from
+the cutoff snapshot, immediately follow its latest observation, and be the latest month
+in the resolution snapshot. Invalid or incomplete events abort the build.
+
+CPI inputs include prior monthly levels and the last available monthly change. Input tables
+use observation dates; their document dates identify the snapshot's availability. CPI
+components overlap, and the target views share a release event, so neither entity rows nor
+views count as independent samples. Keep this domain's development and held-out rosters
+separate and retain the same chronological split checks. The default Treasury build and
+its existing cache URLs remain unchanged.
 
 ```bash
 python -m baselines.evaluation.historical \

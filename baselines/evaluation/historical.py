@@ -27,6 +27,14 @@ from pathlib import Path
 from .dataset import REPO, load_cases, public_roots, require_external
 
 SERIES = {f"DGS{years}": years for years in (1, 2, 3, 5, 7, 10, 20, 30)}
+CPI_SERIES = {
+    "CPIAUCSL": "All items CPI",
+    "CPILFESL": "All items less food and energy CPI",
+    "CPIUFDSL": "Food CPI",
+    "CPIENGSL": "Energy CPI",
+    "CUSR0000SAH1": "Shelter CPI",
+    "CUSR0000SAS": "Services CPI",
+}
 KINDS = ("classification", "regression", "ranking")
 SOURCE = "https://alfred.stlouisfed.org/graph/alfredgraph.csv"
 
@@ -95,11 +103,13 @@ def parse_snapshot(payload: bytes, series: str, vintage: date) -> dict[date, Dec
 def snapshot(
     cache: Path, series: str, vintage: date, *, offline: bool
 ) -> tuple[dict, dict]:
-    if series not in SERIES:
-        raise ValueError("unsupported Treasury series")
+    if series not in SERIES and series not in CPI_SERIES:
+        raise ValueError("unsupported historical series")
     params = {
         "id": series,
-        "cosd": (vintage - timedelta(days=65)).isoformat(),
+        "cosd": (
+            vintage - timedelta(days=400 if series in CPI_SERIES else 65)
+        ).isoformat(),
         "coed": vintage.isoformat(),
         "vintage_date": vintage.isoformat(),
     }
@@ -127,7 +137,11 @@ def snapshot(
             "vintage": vintage.isoformat(),
             "sha256": hashlib.sha256(payload).hexdigest(),
             "retrieved_at": datetime.now(timezone.utc).isoformat(),
-            "license": "public-domain US government observations; cite FRED/ALFRED and Federal Reserve H.15",
+            "license": (
+                "public-domain US government observations; cite FRED/ALFRED and BLS CPI"
+                if series in CPI_SERIES
+                else "public-domain US government observations; cite FRED/ALFRED and Federal Reserve H.15"
+            ),
         }
         path.write_bytes(payload)
         write_json(meta_path, meta)
@@ -203,36 +217,176 @@ def build_event(out: Path, event: dict, snapshots: dict) -> list[dict]:
         provenance.append(
             {"series": series, "input": before_meta, "outcome": after_meta}
         )
+    prompt = (
+        "Using only the frozen table and corpus, predict the cross-section of Treasury "
+        "yield changes in basis points. The target is 100 * (the latest common yield "
+        f"available in the ALFRED vintage of {resolution} minus start_yield_pct). "
+        "Each starting yield is supplied. Do not treat historical observations as known future values. "
+        "Provide a numeric point_forecast, a 90% interval on the basis-point change scale, and citations. "
+    )
+    return _write_views(
+        out,
+        event,
+        entities,
+        outcomes,
+        documents,
+        provenance,
+        start=start,
+        end=end,
+        slug="curve",
+        family="local_curve_change",
+        title="Independent local Treasury cross-section",
+        tag="rates",
+        target_name="yield_change_bps",
+        unit_name="bps_change",
+        prompt=prompt,
+        classification="Labels: up if change > 5 bps, down if change < -5 bps, flat otherwise.",
+        ranking="Rank larger yield changes higher; point_forecast is the predicted change, not a rank integer.",
+        limitations="One rates domain with three correlated target views; not representative of hidden T4 families. Model training contamination is not certified.",
+    )
+
+
+def _previous_month(month: date) -> date:
+    return (month - timedelta(days=1)).replace(day=1)
+
+
+def build_cpi_event(out: Path, event: dict, snapshots: dict) -> list[dict]:
+    cutoff = date.fromisoformat(event["cutoff"])
+    resolution = date.fromisoformat(event["resolution"])
+    month = date.fromisoformat(event["target_month"])
+    prior = _previous_month(month)
+    entities, outcomes, documents, provenance = [], [], {}, []
+    for series, title in CPI_SERIES.items():
+        before, before_meta = snapshots[(series, cutoff)]
+        after, after_meta = snapshots[(series, resolution)]
+        if any(
+            day.day != 1 or value <= 0
+            for rows in (before, after)
+            for day, value in rows.items()
+        ):
+            raise ValueError("CPI snapshots require positive monthly index levels")
+        if month in before or max(before) != prior:
+            raise ValueError(
+                "CPI target must be the next unpublished observation month"
+            )
+        if max(after) != month or prior not in after:
+            raise ValueError(
+                "CPI resolution vintage must contain the target and previous month"
+            )
+        previous = _previous_month(prior)
+        if previous not in before:
+            raise ValueError("CPI input needs consecutive months for historical change")
+        historical_change = float((before[prior] / before[previous] - 1) * 100)
+        change = float((after[month] / after[prior] - 1) * 100)
+        doc_id = f"ALFRED_{series}_{cutoff:%Y%m%d}"
+        text = (
+            f"{series}: {title}, seasonally adjusted index levels from BLS CPI. "
+            f"ALFRED vintage {cutoff}; observation dates identify months, not release dates. "
+            "This is historical evidence, not a forecast.\n"
+            f"{series} historical month-over-month change for {prior}: {historical_change:.12g} percent.\n"
+            f"date | {series}\n"
+        ) + "\n".join(f"{day} | {before[day]}" for day in sorted(before)[-7:])
+        entities.append(
+            {
+                "entity_id": series,
+                "name": title,
+                "series_fred": series,
+                "last_mom_pct": historical_change,
+                "as_of": cutoff.isoformat(),
+                "last_observation_month": prior.isoformat(),
+                "unit": "percent",
+            }
+        )
+        outcomes.append(
+            {
+                "entity_id": series,
+                "y": change,
+                "true_label": "up" if change > 0 else "down" if change < 0 else "flat",
+            }
+        )
+        documents[doc_id] = {
+            "doc_id": doc_id,
+            "doc_date": cutoff.isoformat(),
+            "source": before_meta["url"],
+            "text": text,
+        }
+        provenance.append(
+            {"series": series, "input": before_meta, "outcome": after_meta}
+        )
+    prompt = (
+        "Using only the frozen table and corpus, forecast seasonally adjusted CPI "
+        f"month-over-month changes for observation month {month}. "
+        f"The target is 100 * (index[{month}] / index[{prior}] - 1), with both index "
+        f"levels taken from the ALFRED vintage dated {resolution}. "
+        "This is a specified-vintage target, not a certified first-release target. "
+        "Provide a numeric point_forecast and a 90% interval in percent, with citations. "
+        "Historical changes are inputs, not known future outcomes. "
+    )
+    return _write_views(
+        out,
+        event,
+        entities,
+        outcomes,
+        documents,
+        provenance,
+        start=prior,
+        end=month,
+        slug="cpi",
+        family="local_cpi_mom_vintage",
+        title="Independent local CPI component cross-section",
+        tag="inflation",
+        target_name="cpi_component_mom_vintage_pct",
+        unit_name="percent",
+        prompt=prompt,
+        classification="Labels: up if change > 0, down if change < 0, flat otherwise.",
+        ranking="Rank larger month-over-month changes higher; point_forecast is the change, not a rank integer.",
+        limitations="Specified-vintage CPI, not certified first print. Components overlap and views share one release event; neither rows nor views are independent samples. Model training contamination is not certified.",
+    )
+
+
+def _write_views(
+    out: Path,
+    event: dict,
+    entities: list,
+    outcomes: list,
+    documents: dict,
+    provenance: list,
+    *,
+    start: date,
+    end: date,
+    slug: str,
+    family: str,
+    title: str,
+    tag: str,
+    target_name: str,
+    unit_name: str,
+    prompt: str,
+    classification: str,
+    ranking: str,
+    limitations: str,
+) -> list[dict]:
+    cutoff = date.fromisoformat(event["cutoff"])
+    resolution = date.fromisoformat(event["resolution"])
     cases = []
     for kind in KINDS:
-        case_id = f"t4-local-curve-{cutoff:%Y%m%d}-{kind}"
+        case_id = f"t4-local-{slug}-{cutoff:%Y%m%d}-{kind}"
         unit = out / "inputs" / case_id
         (unit / "corpus").mkdir(parents=True)
-        prompt = (
-            "Using only the frozen table and corpus, predict the cross-section of Treasury "
-            "yield changes in basis points. The target is 100 * (the latest common yield "
-            f"available in the ALFRED vintage of {resolution} minus start_yield_pct). "
-            "Each starting yield is supplied. Do not treat historical observations as known future values. "
-            "Provide a numeric point_forecast, a 90% interval on the basis-point change scale, and citations. "
+        view_prompt = prompt + (
+            {"classification": classification, "ranking": ranking}.get(kind, "")
         )
-        if kind == "classification":
-            prompt += (
-                "Labels: up if change > 5 bps, down if change < -5 bps, flat otherwise."
-            )
-        elif kind == "ranking":
-            prompt += "Rank larger yield changes higher; point_forecast is the predicted change, not a rank integer."
-        target = {"name": "yield_change_bps", "type": kind, "unit": "bps_change"}
+        target = {"name": target_name, "type": kind, "unit": unit_name}
         if kind == "classification":
             target["labels"] = ["down", "flat", "up"]
         task = {
             "schema_version": "3",
             "task_id": case_id,
-            "family": "local_curve_change",
+            "family": family,
             "cutoff_date": cutoff.isoformat(),
             "resolution_date": resolution.isoformat(),
             "target": target,
             "interval_level": 0.9,
-            "prompt": prompt,
+            "prompt": view_prompt,
             "entities": entities,
         }
         write_json(unit / "task.json", task)
@@ -241,10 +395,10 @@ def build_event(out: Path, event: dict, snapshots: dict) -> list[dict]:
         card = tomllib.loads((REPO / "units/t4-EXAMPLE-eps-beat/card.toml").read_text())
         card["task"].update(
             id=case_id,
-            title="Independent local Treasury cross-section",
+            title=title,
             split="public-dev",
-            family="local_curve_change",
-            prompt=prompt,
+            family=family,
+            prompt=view_prompt,
             cutoff_date=cutoff.isoformat(),
             resolution_date=resolution.isoformat(),
             target_type=kind,
@@ -254,8 +408,8 @@ def build_event(out: Path, event: dict, snapshots: dict) -> list[dict]:
         card["metadata"].update(
             author_name="Local development",
             author_email="local@example.invalid",
-            category="local_curve_change",
-            tags=["analysis", "local-development", "rates"],
+            category=family,
+            tags=["analysis", "local-development", tag],
         )
         card["provenance"].update(
             data_source="ALFRED vintage snapshots",
@@ -319,7 +473,7 @@ def build_event(out: Path, event: dict, snapshots: dict) -> list[dict]:
             "end_observation": end.isoformat(),
             "sources": provenance,
             "independent_events": 1,
-            "limitations": "One rates domain with three correlated target views; not representative of hidden T4 families. Model training contamination is not certified.",
+            "limitations": limitations,
         },
     )
     return cases
@@ -330,13 +484,20 @@ def build(spec_path: Path, cache: Path, out: Path, *, offline: bool = False) -> 
     for path in (spec_path, cache, out):
         require_external(path, roots)
     spec = json.loads(spec_path.read_text())
+    family = spec.get("family", "curve_change")
+    if family not in ("curve_change", "cpi_mom"):
+        raise ValueError("unsupported historical family")
+    series_roster = CPI_SERIES if family == "cpi_mom" else SERIES
     events = spec.get("events")
     if spec.get("version") != 1 or not isinstance(events, list) or not events:
         raise ValueError("expected version 1 and a nonempty events roster")
     seen = set()
     periods: dict[str, list[tuple[date, date]]] = {}
     for event in events:
-        if set(event) != {"id", "cutoff", "resolution", "split"}:
+        fields = {"id", "cutoff", "resolution", "split"}
+        if family == "cpi_mom":
+            fields.add("target_month")
+        if set(event) != fields:
             raise ValueError("invalid event fields")
         if (
             not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,80}", event["id"])
@@ -354,6 +515,12 @@ def build(spec_path: Path, cache: Path, out: Path, *, offline: bool = False) -> 
             raise ValueError("event needs a positive horizon of at most 60 days")
         if resolution >= date.today():
             raise ValueError("historical event must already be resolved")
+        if family == "cpi_mom":
+            month = date.fromisoformat(event["target_month"])
+            if month.day != 1 or month > cutoff or (cutoff - month).days > 62:
+                raise ValueError(
+                    "CPI target_month must identify a recent observation month"
+                )
         periods.setdefault(event["split"], []).append((cutoff, resolution))
     splits = ("train", "calibration", "test")
     for i, earlier in enumerate(splits):
@@ -379,7 +546,7 @@ def build(spec_path: Path, cache: Path, out: Path, *, offline: bool = False) -> 
         for key in ("cutoff", "resolution"):
             vintage = date.fromisoformat(event[key])
             missing = [
-                series for series in SERIES if (series, vintage) not in snapshots
+                series for series in series_roster if (series, vintage) not in snapshots
             ]
             with ThreadPoolExecutor(max_workers=2) as pool:
                 jobs = {
@@ -389,12 +556,18 @@ def build(spec_path: Path, cache: Path, out: Path, *, offline: bool = False) -> 
                     for series in missing
                 }
                 for series, job in jobs.items():
-                    snapshots[(series, vintage)] = job.result()
+                    try:
+                        snapshots[(series, vintage)] = job.result()
+                    except Exception as exc:
+                        raise RuntimeError(
+                            f"Snapshot {series} at {vintage}: {exc}"
+                        ) from exc
             print(f"Validated vintage {vintage}", flush=True)
     out.mkdir(parents=True)
     for folder in ("truth", "provenance"):
         (out / folder).mkdir()
-    cases = [case for event in events for case in build_event(out, event, snapshots)]
+    builder = build_cpi_event if family == "cpi_mom" else build_event
+    cases = [case for event in events for case in builder(out, event, snapshots)]
     manifest = out / "manifest.json"
     write_json(manifest, {"version": 1, "cases": cases})
     load_cases(units=None, manifest=manifest)
@@ -418,9 +591,11 @@ def build(spec_path: Path, cache: Path, out: Path, *, offline: bool = False) -> 
             "builder_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             "events": len(events),
             "cases": len(cases),
-            "entities_per_case": len(SERIES),
+            "entities_per_case": len(series_roster),
             "official_score": None,
-            "domain": "Treasury yield cross-sections only",
+            "domain": "CPI component cross-sections only"
+            if family == "cpi_mom"
+            else "Treasury yield cross-sections only",
         },
     )
     return manifest

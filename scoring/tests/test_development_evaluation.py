@@ -123,6 +123,23 @@ def test_raw_error_remains_visible_when_quality_is_clipped(tmp_path: Path) -> No
     assert len(result["numeric_errors"]["entity_errors"]) == len(truth["outcomes"])
 
 
+@pytest.mark.parametrize("values, baseline", [([1, 2, 6], 2.0), ([2, 2, 2], 0.0)])
+def test_regression_diagnostic_exposes_realized_mean_baseline(
+    tmp_path: Path, values: list[float], baseline: float
+) -> None:
+    unit, output, answer, truth = _case(tmp_path, target_type="regression")
+    for prediction, actual, value in zip(
+        answer["entity_predictions"], truth["outcomes"], values
+    ):
+        actual["y"] = value
+        prediction["point_forecast"] = 3
+        prediction["interval"] = {"level": 0.9, "lo": -10, "hi": 10}
+    _write_answer(output, answer)
+    result = assess_unit(unit, output, realized=truth)
+    assert result["numeric_errors"]["cross_section_mean_baseline_mae"] == baseline
+    assert result["predictive_quality"] == 0.0
+
+
 def test_failed_submission_retains_canonical_worst_case(tmp_path: Path) -> None:
     unit, output, answer, truth = _case(tmp_path)
     answer["entity_predictions"].pop()

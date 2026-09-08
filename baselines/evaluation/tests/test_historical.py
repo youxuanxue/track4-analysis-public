@@ -146,3 +146,109 @@ def test_builder_produces_three_correlated_views_without_future_inputs(
         assert result["development_score"] == pytest.approx(-0.27)
     with pytest.raises(ValueError, match="must be new"):
         historical.build(spec, tmp_path / "cache", out, offline=True)
+
+
+def cpi_event():
+    return {
+        "id": "invented-cpi",
+        "cutoff": "2025-02-05",
+        "resolution": "2025-02-20",
+        "target_month": "2025-01-01",
+        "split": "calibration",
+    }
+
+
+def cpi_snapshot(cache, series, vintage, **kwargs):
+    if str(vintage) == cpi_event()["cutoff"]:
+        rows = {date(2024, 11, 1): Decimal("100"), date(2024, 12, 1): Decimal("110")}
+    else:
+        # The denominator was revised: use both levels from the resolution vintage.
+        rows = {date(2024, 12, 1): Decimal("200"), date(2025, 1, 1): Decimal("206")}
+    return rows, {"url": "https://example.invalid/synthetic", "vintage": str(vintage)}
+
+
+def test_cpi_builder_uses_resolution_denominator_and_only_historical_inputs(
+    tmp_path, monkeypatch
+):
+    pytest.importorskip("qfbench2_common")
+    from baselines.evaluation.dataset import load_cases, stage_inputs
+    from baselines.strong_rag_baseline.indexer import build_index
+    from baselines.strong_rag_baseline.reasoner import ground_entity
+    from baselines.strong_rag_baseline.retriever import BM25Index
+
+    spec = tmp_path / "spec.json"
+    spec.write_text(
+        json.dumps({"version": 1, "family": "cpi_mom", "events": [cpi_event()]})
+    )
+    monkeypatch.setattr(historical, "snapshot", cpi_snapshot)
+    roster = historical.build(spec, tmp_path / "cache", tmp_path / "built")
+    cases = load_cases(units=None, manifest=roster)
+    assert len(cases) == 3 and len({case.group for case in cases}) == 1
+    for case in cases:
+        task = json.loads((case.unit_dir / "task.json").read_text())
+        truth = json.loads(case.truth_path.read_text())
+        assert [row["y"] for row in truth["outcomes"]] == [3.0] * len(
+            historical.CPI_SERIES
+        )
+        assert task["family"] == "local_cpi_mom_vintage"
+        assert all(row["last_mom_pct"] == 10 for row in task["entities"])
+        assert "not a certified first-release" in task["prompt"]
+        staged = tmp_path / case.case_id
+        stage_inputs(case.unit_dir, staged)
+        assert set(p.name for p in staged.iterdir()) == {"task.json", "corpus"}
+        text = " ".join(p.read_text() for p in (staged / "corpus").glob("*.json"))
+        assert "206" not in text and "2025-02-20" not in text
+        corpus = build_index(staged / "corpus")
+        index = BM25Index(corpus.chunks, task["cutoff_date"])
+        for entity in task["entities"]:
+            result = ground_entity(task, entity, corpus, index)
+            assert result.point == 10 and result.claims
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "already_published",
+        "stale",
+        "missing_previous",
+        "wrong_month",
+        "non_monthly",
+        "zero_index",
+    ],
+)
+def test_cpi_rejects_unsettled_or_leaking_snapshots(tmp_path, defect):
+    event = cpi_event()
+    snapshots = {
+        (series, date.fromisoformat(event[key])): cpi_snapshot(
+            None, series, date.fromisoformat(event[key])
+        )
+        for series in historical.CPI_SERIES
+        for key in ("cutoff", "resolution")
+    }
+    before = snapshots[("CPIAUCSL", date.fromisoformat(event["cutoff"]))][0]
+    after = snapshots[("CPIAUCSL", date.fromisoformat(event["resolution"]))][0]
+    if defect == "already_published":
+        before[date(2025, 1, 1)] = Decimal("115")
+    elif defect == "stale":
+        del before[date(2024, 12, 1)]
+    elif defect == "missing_previous":
+        del after[date(2024, 12, 1)]
+    elif defect == "wrong_month":
+        after[date(2025, 2, 1)] = Decimal("207")
+    elif defect == "non_monthly":
+        before[date(2024, 11, 2)] = Decimal("101")
+    else:
+        after[date(2024, 12, 1)] = Decimal("0")
+    with pytest.raises(ValueError, match="CPI"):
+        historical.build_cpi_event(tmp_path, event, snapshots)
+
+
+def test_cpi_invalid_month_rejected_before_download(tmp_path, monkeypatch):
+    event = cpi_event() | {"target_month": "2025-01-02"}
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps({"version": 1, "family": "cpi_mom", "events": [event]}))
+    monkeypatch.setattr(
+        historical, "snapshot", lambda *a, **k: pytest.fail("must reject before fetch")
+    )
+    with pytest.raises(ValueError, match="target_month"):
+        historical.build(spec, tmp_path / "cache", tmp_path / "built")
