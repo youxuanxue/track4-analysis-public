@@ -12,6 +12,7 @@ import json
 from .indexer import Chunk
 from .evidence import evidence_references
 from .quantities import TargetSpec
+from .tables import summary_columns, table_summaries
 
 SYSTEM_PROMPT = """\
 You are a careful financial analyst. You predict a target for one entity using ONLY the
@@ -125,6 +126,16 @@ def build_user_prompt(task: dict, entity: dict, retrieved: list[Chunk]) -> str:
             f"[{evidence_id}] doc_id={chunk.doc_id} (doc_date={chunk.doc_date})"
         )
         lines.append(f'"""{chunk.text}"""')
+        summaries = table_summaries(
+            chunk, spec.cutoff, summary_columns(task, entity, chunk)
+        )
+        if summaries:
+            lines.append(
+                "COMPUTED HISTORICAL TABLE CONTEXT (same evidence ID; source column scale; "
+                "null unit means unknown; differences are last minus earlier, not growth rates; "
+                "historical min/max are NOT a prediction interval; dates cover only this excerpt): "
+                + json.dumps(summaries, ensure_ascii=False, allow_nan=False)
+            )
 
     schema = {
         "label": "string or null",
