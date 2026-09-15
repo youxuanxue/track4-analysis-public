@@ -218,3 +218,48 @@ the actual command and effective settings, seal report hashes after evaluation, 
 completion only after the owned processes have exited successfully. Calibration never
 reuses grounded residuals for model predictions. Its artifact retains the runtime record
 hashes and common model identity; it remains a development experiment outside the image.
+
+## Internal acceptance and sealed batches
+
+The [acceptance policy](acceptance-policy.json) defines internal sample, gain and
+resource-margin targets. [The audit](acceptance.py) uses the existing comparator,
+checks persisted run/answer artifacts, and reports PASS, FAIL or UNMEASURED for
+measured subchecks. Missing complete-roster, resource/fault or production evidence
+keeps the overall goals unmeasured; the audit does not promote a candidate.
+The report's declared total or mean is never used to replace per-run measurements.
+
+Use an optional `domain` on private manifest cases to enable domain-level
+comparisons. It is evaluator metadata, never an agent input. Missing domains on
+older reports do not invent cross-domain generalization. Acceptance uses only test
+reports, balanced event weights and independent event counts, not entity counts.
+
+[Batch registration](batch.py) freezes a test-only manifest, policy, before/after
+source and toolkit identities, input and truth digests, and seeds before invoking
+prediction. A versions file maps `before` and `after` to objects containing `repo`,
+`python` and `image` (null for a local process). The runner currently supports only
+grounded/smoke runs with no model-request budget. Consult its CLI for arguments:
+
+```bash
+python -m baselines.evaluation.acceptance --help
+python -m baselines.evaluation.batch --help
+python -m baselines.evaluation.batch register --help
+python -m baselines.evaluation.batch run --help
+python -m baselines.evaluation.batch decide --help
+```
+
+Store the registry, manifests, version declarations and outputs outside all public
+worktrees. Each registry reserves event IDs and input digests, even across renamed
+cases or different seeds. Starting a role burns that run; a failed or interrupted
+run must not be rerun on the same batch. Successful or participant-failed complete
+runs receive a digest-bound receipt. `decide` verifies both receipts and writes an
+exclusive decision file; later calls must inspect that file instead of recomputing
+selection. A changed source, policy, roster or report is refused.
+
+The registry prevents accidental replay and post-hoc substitution; it is not an
+anti-tamper service against someone who controls its files. It does not establish
+that the data were previously unseen by people, that event IDs are independent,
+or that source licensing and cutoff provenance are valid. These still require
+separate provenance evidence. Cold-start/fault and resource accounting, deployment
+eligibility, production equivalence and independent production confirmations are
+not yet wired into the verdict. The current implementation always keeps the
+incumbent and never claims official ranking or internal completion.

@@ -325,6 +325,7 @@ def main(argv: list[str] | None = None) -> int:
                     "case_id": case.case_id,
                     "split": case.split,
                     "group": case.group,
+                    "domain": case.domain,
                     "seed": seed,
                     "profile": args.profile,
                     "input_digest": digest,

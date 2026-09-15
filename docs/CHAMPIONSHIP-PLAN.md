@@ -1,123 +1,150 @@
 ## Executive summary (read this first)
 
-This plan is updated against the organiser repositories and public issue threads available on 2026-09-15. The winning submission should maximise expected production composite score while treating schema, cutoff, roster, and faithfulness failures as whole-unit losses. The current best route is a deterministic evidence pipeline with a strong target-aware prediction layer, empirical interval calibration, and a production-ready House API client; a LoRA adapter is an optional second lane, not a reason to delay the compliant baseline. Public smoke results are interface checks only because public units have no resolved outcomes and the production judge is not the smoke judge.
+This plan defines an internal improvement loop with three acceptance levels: reliable delivery, measured predictive improvement, and production-judge validation across independent domains. Every candidate is compared with a frozen incumbent using the same data and scorer, with failed units retained in the score. Development data may guide iteration, but each promotion requires fresh sealed evidence that has not guided model selection. Missing production measurements remain unmeasured and never become a passing result. The evaluation tools now audit measured acceptance conditions and bind paired runs to a registered batch; missing resource and production evidence still prevents promotion. Passing all internal levels creates a release candidate, while only the organisers can establish a winning final rank.
 
-# Track 4 夺冠路径与执行计划（2026-09-15 版）
+# Track 4 夺冠路径与迭代验收计划
 
-## 1. 官方状态核查与对策略的影响
+## 1. 当前基线与官方约束
 
-本计划以官方 `upstream/main` 的最新公开内容为准，并以 [Track 4 官方仓库](https://github.com/Agenthon-2026/track4-analysis-public) 和 [共享 toolkit 仓库](https://github.com/Agenthon-2026/Agenthon2026-public) 为证据源。核查快照为 Track 4 `23da074`（2026-09-13）与共享仓库 `fbc57d29`（2026-09-12）；当前工作树 `6274b86` 落后于官方分支。截至本计划日期，官方最近变更包括：
+本次规划基于本地 `origin/main` 的 `b9f2fad`。该版本已有实体与表格证据处理、结构化预测、独立评测、历史数据构建、区间校准及配对比较；不能再把这些全部列作从零开发。最近一次提交前检查为 673 项测试通过、11 个公开单位校验通过、示例 smoke 通过。它们证明工程回归通过，没有证明模型超过基线或生产 faithfulness 合格；本次未重新测量这些结果。
 
-- 评分器统一到 **3.1.0**，参与者应固定 `qfbench2-common` **v2.4.0**；不要继续使用旧的 v2.3.1。
-- BYO 规则已经收敛为 **只提交一个 rank ≤ 64 的 LoRA adapter**，由主办方加载到其基础模型并提供 `MODEL_ENDPOINT`；禁止打包完整模型权重、完整微调模型或自行启动模型服务。`byo-large` / `byo-small` 是历史 descriptor 名称，不代表两档权重方案。
-- House API 的已选配额是**每单位 25 次请求、每次最多 4000 输出 token**；输入限制以及失败/重试是否计费仍待平台公告，不能把 25 次当成可无条件重试预算。
-- [离线训练政策](https://github.com/Agenthon-2026/track4-analysis-public/blob/23da0746010f19f21f8b180953477fcd19675351/docs/TRAINING-POLICY.md)允许合规的外部历史数据用于拟合、模型选择和区间校准，但每个任务使用的数据必须在其 cutoff 前可得，且必须提交 `ARTIFACT_PROVENANCE.md` 记录来源、许可证、首次可得时间和不可变版本。
-- `build_smoke_verifier` 是不可排名的预览；生产评分只走 `build_verifier`。本地 lexical faithfulness、Development 结果和无 resolved outcome 的 smoke 分数都不能用于模型/提示词选优。
-- 当前公开合同仍要求三类 target type（classification / regression / ranking）、完整 roster、每行有效 interval 和至少一个可解析 citation；任何单行 schema 问题都使整单位落到最坏分。
-- 评分没有 interval width/sharpness 奖励；可操作目标是跨单位的 empirical coverage 接近卡片要求，而不是把区间做窄。
+官方规则核查沿用 2026-09-15 快照：Track 4 `23da074`，共享仓库 `fbc57d29`。这是来源快照，不代表所有规则已经冻结，也不代表本 fork 已导入官方评分器修复。进入实验前先核对以下权威工件；发生变化就创建新的评测批次，并在同一环境重跑两个版本。
 
-未冻结事项必须进入发布门禁：生产 NLI 的模型/Tokenizer revision、运行时与 cache digest；citation 阈值和 aggregate faithfulness 阈值的最终校准；House API 输入/失败/重试计费；正式 validation leaderboard 的开放时间与隐藏集摘要。相关公开讨论见 [issue #1](https://github.com/Agenthon-2026/track4-analysis-public/issues/1)、[issue #2](https://github.com/Agenthon-2026/track4-analysis-public/issues/2)、[issue #3](https://github.com/Agenthon-2026/track4-analysis-public/issues/3) 和 [issue #8](https://github.com/Agenthon-2026/track4-analysis-public/issues/8)。
+| 权威来源 | 对路线的约束 |
+| --- | --- |
+| [官方评分器与说明](https://github.com/Agenthon-2026/track4-analysis-public/tree/23da0746010f19f21f8b180953477fcd19675351/qfbench2_track_analysis) | 评分器升级需独立导入并验证，禁止自行改评分数学来改善结果 |
+| [共享 toolkit 安装说明](https://github.com/Agenthon-2026/track4-analysis-public/blob/23da0746010f19f21f8b180953477fcd19675351/README.md) | 记录安装来源和源码摘要，不能只凭包显示版本判断实际代码 |
+| [官方提交合同](https://github.com/Agenthon-2026/track4-analysis-public/blob/23da0746010f19f21f8b180953477fcd19675351/SUBMISSION_CLI.md) | House API 主线；BYO 仅在允许的 adapter 范围内；请求预算和运行资源从合同读取 |
+| [离线训练政策](https://github.com/Agenthon-2026/track4-analysis-public/blob/23da0746010f19f21f8b180953477fcd19675351/docs/TRAINING-POLICY.md) | 拟合、选择、校准都受首次可得时间约束；保存 provenance 供核验，不擅自增加上传 ZIP 内容 |
+| [judge 状态讨论](https://github.com/Agenthon-2026/track4-analysis-public/issues/1) | smoke/Development 不能替代生产 judge；未公布的 pins、运行等价性和校准不视为已完成 |
+| [训练工件问题](https://github.com/Agenthon-2026/track4-analysis-public/issues/8) | 非 LLM 的已训练预测器、校准参数等能否随镜像提交仍需明确适用许可；离线比较不等于获准部署 |
+| [发布节奏](https://github.com/Agenthon-2026/track4-analysis-public/issues/2) | 发布后按 commit/tag 比较合同，不依据旧评论推断规则已落地 |
 
-## 2. 夺冠目标函数
+术语见 [CONCEPTS.md](CONCEPTS.md)。本文将当前保留的最佳版本称为 incumbent，新实验版本称为 candidate；晋级指内部更换保留版本，不自动提交赛事或宣称可排名。
 
-把每个单位视为一次全有或全无的交付：
+## 2. 三层内部目标与验收证据
 
-1. 先保证 g0 integrity、g1 schema、g2 cutoff/resource、g3 domain semantics 全部通过。
-2. 再保证至少 80% roster entity 的 citation 能支持**提交的预测与区间**，而不是只支持 claim 文本。
-3. 在合格单位上最大化 `0.70 × predictive_quality − 0.30 × |coverage − interval_level|`，并让失败单位数为零。
+三个目标分别记录 `PASS`（证据完整且合格）、`FAIL`（实测不合格）、`UNMEASURED`（缺数据、条件或样本量）。缺值不填零，不默认通过。工程通过后可以持续迭代预测；生产条件缺位只阻止生产资格结论。
 
-因此优先级固定为：**零整单位失败 > faithfulness 稳定过线 > 预测质量 > 区间校准的最后几个百分点 > 语言润色**。任何只提高平均分、却增加 schema 或 cutoff 风险的改动不接受。
+| 目标 | 验收条件 | 交付证据 |
+| --- | --- | --- |
+| G1：稳定交付 | 对声明的完整验收清单逐次运行，所有预期正常运行成功；schema、roster、citation 边界、cutoff 和资源账本均通过；真实容器冷启动及故障演练完成 | 镜像摘要、输入清单摘要、代码/依赖版本、逐单位验证结果、请求和耗时记录、故障演练结果 |
+| G2：可重复的预测提升 | 固定 incumbent，在独立且未参与选优的验收数据上满足下表样本要求与配对提升门槛；两个版本都满足 G1 | 完整原始报告、事件分组、评分器身份、配对比较、按 target type 与领域分层结果 |
+| G3：内部争冠候选 | 同一固定候选通过 G1/G2；获准的生产 judge 在两批互不重叠的新验收事件上逐单位通过 faithfulness；每批都保持提升，且完成生产模型运行、工件合规及复现核验 | 两批独立验收报告、生产 judge 来源与运行 pins、每单位 faithfulness、模型和训练 provenance、发布候选摘要 |
 
-### 作战判定（每个候选版本都必须回答）
+G1 不等于官方四道门禁全部通过：`g3_domain_semantics` 中的生产 faithfulness 由 G3 核验。模型断网后产生合法输出，只证明该故障的恢复行为；不能因此宣称预测正确或生产合格。没有真实官方资源环境时，本地资源测试标明覆盖范围，对应官方环境等价性保持 `UNMEASURED`。
 
-- **可提交：** g0–g3 在所有回放单位均为 0 失败，输出可重放，且没有未解释的请求、证据或 cutoff 记录。
-- **可排名：** 生产 judge 可用后，faithfulness 的下置信界仍高于 0.80；不能用 lexical smoke 值替代这个证据。
-- **值得替换：** 新版本在固定 holdout 上的 predictive quality 改善，且其置信区间不与旧版本重叠到无法区分；同时失败率和 coverage 偏差不恶化。
-- **立即回滚：** 任意整单位失败、出现一条 cutoff/引用越界，或请求账本无法解释实际配额消耗。
+G3 是我们能够验收的生产就绪与泛化证据，不要求官方榜单开放才能继续其他工作，也不表示已经超过所有对手。正式榜单与最终审核是额外外部证据。
 
-这些判定写入每次实验报告；没有报告的 prompt、检索、模型或 adapter 变更不进入候选提交。
+### 内部验收政策 v1
 
-## 3. 推荐技术路线
+数值标准的唯一来源为 [acceptance-policy.json](../baselines/evaluation/acceptance-policy.json)，由 [acceptance.py](../baselines/evaluation/acceptance.py) 校验并以摘要绑定批次。这些是内部政策，不是赛事规则，也不保证样本统计功效；调整必须登记新版本并使用新批次，禁止按结果下调。
 
-### A. 交付主线：House API + 确定性 evidence pipeline
+| 项目 | 配置与解释 |
+| --- | --- |
+| 独立样本 | `min_event_groups`、`min_domains`、`min_groups_per_stratum`；同事件多视图、实体和 seed 不增加独立样本数 |
+| 实用提升 | `min_mean_gain`；同时要求配对差值的置信区间下界大于零 |
+| 分层防退化 | `min_stratum_gain`；每个领域和 target type 分别判定，附事件样本数和区间 |
+| 重复运行 | `min_repeats`；使用相同预设 seed 集合，重复不增加样本量 |
+| 资源余量 | `max_p95_timeout_fraction`；每次运行还须满足权威合同的硬上限 |
+| 独立确认 | `confirmation_batches`；固定候选和对照，分别验收而不合并掩盖失败 |
+| 候选上限 | `max_candidates_per_round`；开发筛选后只冻结一个进入验收 |
+| 配对统计 | `bootstrap_samples`、`bootstrap_seed`；比较器按事件分组重采样 |
 
-保留当前 `strong_rag_baseline` 的可复现骨架，但把“示例 baseline”升级为提交候选：
+验收集预先平衡每事件的单位/视图数及 seed 数；报告列完整单位均分，不确定性按事件组计算。非平衡设计须预先另定权重，不能直接套用事件等权结论。预期正常运行要求零机械失败；故意构造的故障演练单列。生产支持度按可信 card/plan 的阈值逐单位核验，禁止用总体均值替代。
 
-- 启动时读取并校验 `task.json`、`card.toml`、manifest 和 corpus；按 cutoff 过滤文档，拒绝日期缺失或越界证据。
-- 对每个实体建立实体别名、数值字段和表格单元的索引；BM25/词法检索作为必有路径，模型只做重排、数值解释和不确定性判断。不要依赖在线 embedding 下载。
-- 让模型返回受限 JSON 中间结果：target type、预测值、理由、证据候选、区间依据；本地 validator 再生成最终 `answer.json`。模型输出不直接落盘。
-- citation 由代码从已检索 span 生成，严格保存 `doc_id`、半开区间 `span_start/span_end`，并在提交前逐条重放 `tau_citation` 检查。
-- 对 classification 使用任务 label vocabulary；对 regression 使用带单位的数值；对 ranking 以 `point_forecast` 排序，`rank` 只有在完整 permutation 时才输出。
-- 使用离线 walk-forward / leave-one-cutoff-out 评估做模型选择和区间校准；不使用任何 cutoff 之后的答案、修订值或隐藏单位线索。
+预算、样本或生产条件不足时，继续积累开发证据，保持对应目标 `UNMEASURED`，不靠放宽统计口径凑达标。
 
-### B. 可选增强线：LoRA adapter
+### 主指标和辅助指标
 
-只有在 A 线通过完整合同测试、且已有可复现实验证据表明 adapter 提升 predictive quality 时才启用 B 线。adapter 线必须满足：一个 adapter 文件对、rank ≤ 64、固定 revision、不可启动模型服务、通过 `ARTIFACT_PROVENANCE.md` 证明训练/选择/校准 cutoff 合规。若生产 endpoint、adapter 加载或 bit-reproducibility 仍未开放验证，提交 A 线，避免把合规风险换成理论上限。
+主指标为既定验收分布上的综合得分，所有参与者失败单位保留官方最坏分并留在分母。评分函数调用共享 toolkit；组织方故障中止该评测，不改记参与者失败，也不丢弃后继续发布均分。
 
-### C. 低成本保险：模型不可用降级
+预测质量、原始数值误差、每单位 calibration 损失、证据错绑率和 fallback 率用于定位问题。按每单位先算 calibration 再汇总；整个数据池覆盖率接近目标值，不等于每单位损失小。纯标签任务无数值 calibration 项。interval 宽度本身不设奖励，但 interval 仍参与预测假设的证据核验，不能只靠扩大区间晋级。
 
-在 `MODEL_ENDPOINT` 不可达、超时或预算耗尽时，仍输出完整且可解析的 deterministic answer：实体全覆盖、合法 point forecast、保守区间和本地证据。降级路径只用于避免整单位失败；它不应被误当成夺冠模型，且必须在 `--network=none` 下反复验证。
+G2 在 smoke profile 下可测开发综合得分提升，但明确不含生产 faithfulness；切换生产 profile 后，candidate 和 incumbent 必须用同一生产 judge 重评。95% 区间指配对差值的区间，不是要求两个版本各自的区间互不重叠。反复解封、多重选择或单领域样本都会削弱结论，因此开发提升和独立确认分开记录。
 
-## 4. 分阶段执行与退出门槛
+## 3. 数据与版本纪律
 
-### 阶段 0：合同锁定（1 天）
+数据分为三个用途：拟合/校准、开发筛选、封存验收。使用现有 manifest 的合法 split，分别组织用途清单，不擅自给 CLI 增加不存在的 split 值。时间和事件组隔离由 [dataset.py](../baselines/evaluation/dataset.py) 校验，使用方法见 [评测说明](../baselines/evaluation/README.md)。
 
-- 将工作树同步到官方最新提交，固定 toolkit v2.4.0 和 scorer 3.1.0。
-- 生成 `submission.json`、`ARTIFACT_PROVENANCE.md`、镜像 digest 和依赖锁文件。
-- 建立“官方变更监视表”：每周三 release 检查 scorer、judge、配额和 submission contract；变更后先跑合同回归再调模型。
+- 拟合、选择、校准所用标签的首次可得时间必须早于适用任务 cutoff；历史观察日期不等于公布日期。整个候选选择过程同样受此约束。
+- 开发集允许反复诊断和选优，但不再提供“未见数据”证明。封存验收由独立的评测流程在预测完成后读取真值，开发侧不能用验收真值指导本轮候选。
+- 每批解封后标记 consumed。需要诊断时移入开发资料；它不能再作为下一轮独立确认，后续使用仍受相应 cutoff 限制。两批 G3 验收期间不修改候选。
+- 真值、训练数据、诊断答案和实验报告全部存放于本公共仓库各工作树之外的私有目录；公开库只提交通用代码、政策和合成协议测试，禁止引入任何真实答案或对抗变体细节。
+- 所有报告绑定源代码、镜像、模型、judge、toolkit 和数据摘要。选择 incumbent 不能只写分支名，也不能拿不同 judge 或不同清单的结果直接比较。
 
-**退出门槛：** `pytest scoring/ faithfulness/`、public-safe firewall、Docker smoke、`--network=none` 全部通过；无未解释的 schema 或 roster 差异。
+现有历史构建器支持的 Treasury/CPI 数据仅是有限领域来源，不能因产生三种 target view 就声称覆盖了三个独立领域。领域扩展先解决公开许可、首次可得时间、目标定义与证据质量，再计入验收样本。
 
-### 阶段 1：证据与合规底座（2–3 天）
+## 4. 一轮闭环：从失败到下一版基线
 
-- 为全部公开单位建立离线索引和 evidence trace；逐行验证 span 可重放、日期不越 cutoff、实体绑定正确。
-- 编写 adversarial fixtures：缺实体、重复实体、未知 label、rank 重复、NaN、空 claims、错误 interval level、越界 citation。
-- 记录每次运行的请求数、token 数、seed/temperature、模型名和输入哈希，便于 House API 账本核对。
+```mermaid
+flowchart TD
+    A[冻结合同、基线、政策与预算] --> B[开发集评测并定位最大损失来源]
+    B --> C[单一假设与候选改动]
+    C --> D[G1 容器与机械检查]
+    D -->|FAIL| E[修复并补回归]
+    E --> D
+    D -->|PASS| F[开发集配对比较]
+    F -->|无收益| B
+    F -->|选出一个候选| G[冻结版本，解封新验收批次]
+    G --> H{验收判定}
+    H -->|FAIL| I[保留 incumbent，验收集退出盲测池]
+    I --> B
+    H -->|UNMEASURED| J[补缺失证据；不晋级]
+    H -->|G2 PASS| K[更新开发 incumbent]
+    K --> B
+    K --> L[同一候选完成 G3 两批生产确认]
+    L -->|PASS| M[登记生产候选及回滚版本]
+```
 
-**退出门槛：** 机械错误率为 0；所有故意破坏样例都在本地被 g1/g2/g3 拒绝；任何失败都不能静默缩小 denominator。
+每轮开始先写一条可证伪的假设，例如“实体错绑是该领域最大损失来源；只修改实体约束后，错绑减少且综合得分达到晋级标准”。优先按开发集中的可恢复综合得分损失、影响事件数、实施成本和合规风险选题。一次只改一个主要机制，避免无法归因；机制交互用预先定义的消融比较。
 
-### 阶段 2：预测与校准（3–5 天）
+| 环节 | 责任角色 | 输入 → 输出 | 决策 |
+| --- | --- | --- | --- |
+| 冻结 | 实验负责人 | 合同快照、incumbent、数据清单 → 实验登记 | 无唯一版本、预算或可用验收批次则不启动昂贵实验 |
+| 测量 | 评测流程 | 固定模型与清单 → 逐单位报告、账本 | 缺失运行保留，数据/组织方故障中止 |
+| 诊断 | 实验负责人 + 证据审阅流程 | 开发报告 → 一个主要失败归因、可证伪假设 | 看预测假设及原文证据，不以生成解释好看为依据 |
+| 改进 | 实现流程 | 假设 → 单变量改动、对应回归 | 优先复用现有 evidence/reasoner/calibration 模块 |
+| 验收 | 与选优隔离的评测流程 | 冻结候选、未解封数据 → G1/G2/G3 状态及理由 | 缺证据与实测失败分开，禁止自填 PASS |
+| 晋级 | 确定性判定器（待实现） | 验收报告与政策 → 新 incumbent 或保留旧版本 | 开发与生产候选分别登记，不自动上传或合并 |
+| 沉淀 | 实现流程 | 经确认的原因 → 回归/诊断能力、下一轮待办 | 真实事件资料留私有目录，公共测试使用合成数据 |
 
-- 用 cutoff-aware 的历史切分比较：纯表格模型、词法 RAG、House API、以及（若合规）LoRA adapter。
-- 对三类 target type 分开调参；不要把 classification 的 label accuracy、regression 的 skill score、ranking 的 Spearman 混为一个训练目标。
-- 用 out-of-fold 结果校准 90% interval；先保证 coverage，再在 coverage 达标后改善 point forecast。区间宽度本身不加分。
-- 将每个候选版本冻结成可回放报告，至少包含按 target type、prediction family、cutoff 年份和 evidence 命中情况的分层结果。
+角色是责任边界，不要求增加人员或启动并行 Agent。真实业务/许可判断由负责人处理，可计算的状态、计数和比较由脚本执行。
 
-**退出门槛：** 在未见 cutoff 的回放集上，预测质量的置信区间下界超过 text-blind baseline 和 shipped minimal RAG；coverage 偏差容差必须在实验开始前登记，不得看结果后改；faithfulness 采用生产 judge 可用后再做最终调参。
+## 5. 停止、回滚与预算
 
-### 阶段 3：生产化与竞赛提交（1–2 天）
+开发 incumbent 与生产候选分别保存，另保留上一个已验收版本。G2 晋级后，G3 仍对比该次实验冻结的旧 incumbent，不将新 incumbent 与自己比较；两批生产确认使用同一个对照版本。普通开发集预测变差意味着淘汰候选；机械、cutoff 或资源缺陷则先修复再恢复该候选评测。生产候选发现同类缺陷立即撤销内部资格并回退保留版本，历史报告保持不变。
 
-- 只使用生产合同允许的 API；关闭 vendor-side web/search/code/retrieval tools。
-- 预留请求预算：25 次配额按“每实体批处理 + 失败重试上限”分配，输入计费规则公布前不做激进重试。
-- 做一次冷启动、一次网络受限、一次模型超时、一次重复运行；核对输出、日志、镜像 digest 和 provenance。
-- validation leaderboard 开放后，先提交 A 线作为基线，再以单变量实验比较 prompt、retrieval、calibration 和 adapter 版本；禁止同时改多个组件导致不可归因。
+任何晋级只覆盖报告列明的领域、时间范围、样本和环境，不推断未来失败率为零。新增领域或更新 judge 后重新验收；通过更多单测不能替代新环境证据。
 
-**提交门槛：** 所有单位零 g0–g3 失败；生产 faithfulness ≥ 0.80；重复运行满足官方可复现规则；不存在 cutoff、工具调用、完整权重或 provenance 缺口。
+每轮登记最大请求尝试数、输出 token 上限、总运行次数、墙钟时间和支出上限。单次运行的上限读取权威合同，跨运行预算由当前授权决定；没有预算授权时只做本地确定性工作，不启动训练或收费批量调用。超过上限、出现不明计费、数据污染或不完整账本，终止该轮并输出原因。
 
-## 5. 每周决策规则
+完成每个候选即比较，耗尽候选上限便结束本轮。没有达到晋级门槛时保留 incumbent，也算完成了一次有结论的迭代。连续三次同类失败按会话纪律暂停分析并记录阻塞，禁止无依据换 seed、放宽政策或重试到成功。
 
-- **官方 release 改 scoring/judge/schema：** 立即冻结模型调参，先更新 toolkit、合同测试和 golden fixtures，再恢复实验。
-- **只有 smoke 分数变化：** 不改变夺冠方向；smoke 只用于接口诊断。
-- **预测质量提升但 faithfulness 下降：** 先修证据绑定和假设生成，宁可暂缓提交。
-- **House 配额不足：** 增加批处理、缓存和本地确定性解析；不得通过并发重试赌平台尚未公布的计费细则。
-- **adapter 只在离线回放提升：** 保留为候选，不替换 House 主线，直到生产 adapter endpoint 和 bit-reproducibility 验证完成。
+## 6. 现有工具与待补自动化
 
-## 6. 现阶段立即行动清单
+本节明确实施边界：已有诊断判定器和离线批次登记器；完整资源/故障证据、生产确认和晋级执行器仍未完成，当前决策保持 `KEEP_INCUMBENT`。
 
-1. 对 `upstream/main` 做差异审计并建立独立同步提交；保留本地实验分支和未跟踪文件，不做无审计的强制覆盖。确认 `scripts/smoke-all-units.sh` 是否属于本次交付后再决定是否纳入镜像。
-2. 将当前 baseline 的每次模型调用收敛为可计数的 request ledger，并补齐 25-request budget guard。
-3. 把 interval 校准从固定窄带改成 cutoff-aware empirical calibration；无证据时使用覆盖优先的保守区间。
-4. 完成三类 target type 的分层回放报告，报告中同时列出失败单位数和 faithfulness 诊断，不用一个总平均数掩盖整单位失败。
-5. 准备 adapter 实验分支和 provenance，但在官方生产 judge、验证入口及 BYO operational contract 完整发布前，不将其作为唯一提交路径。
-6. 订阅官方仓库 release/issue 更新；每周三 release 后 24 小时内完成一次合同差异审计。
+| 能力 | 当前入口 | 覆盖范围 / 下一步 |
+| --- | --- | --- |
+| 工程回归 | [preflight.sh](../scripts/preflight.sh)、[容器 smoke](../baselines/smoke_image.sh) | 已有 lint、测试、单位校验和离线容器入口；完整模型故障与资源账本验收仍需补证据 |
+| 数据及运行 | [evaluation CLI](../baselines/evaluation/__main__.py)、[dataset.py](../baselines/evaluation/dataset.py) | 已有外置真值、隔离运行、清单与 split 校验；[batch.py](../baselines/evaluation/batch.py) 已支持冻结、运行回执与一次性判定 |
+| 证据诊断 | [review.py](../baselines/evaluation/review.py) | 已有预测假设、引用原文和有来源的审阅标注；未审阅不得当支持 |
+| 区间实验 | [calibration.py](../baselines/evaluation/calibration.py) | 已有外置残差校准；结果可比较，但工件部署许可须单独核对 |
+| 配对提升 | [compare.py](../baselines/evaluation/compare.py) | 已有相同清单/评分器检查和事件 bootstrap；已增加领域及 target type 的事件区间；样本量和平衡权重由 acceptance 检查 |
+| 三层验收 | [acceptance.py](../baselines/evaluation/acceptance.py) 与版本化政策 | 已输出测量子项、缺证据原因和报告摘要；完整 G1/G3 证据通路待补，不将诊断当晋级 |
+| 轮次控制 | [batch.py](../baselines/evaluation/batch.py) | 已冻结版本、输入/真值摘要和 seed，拒绝重复事件或角色重跑；目前仅离线 grounded/smoke，生产与晋级待补 |
 
-## 7. 冻结前的决策树
+判定器的最低回归要求：缺少 production judge 的 smoke 报告不能通过 G3；漏运行/漏真值不能通过 G2；重复事件或 seed 不能凑样本；不同 toolkit/judge 不可比较；均值变好但配对区间跨零不能晋级；失败单位不能删除；消耗过的验收批次不能重新标为独立；不同版本的报告不能拼成一次通过。
 
-1. **生产 judge 已冻结且可运行：** 立即建立真实 judge 的回归集，先校准 citation 与 faithfulness，再比较模型和 prompt。
-2. **judge 已冻结但尚不可运行：** 只做 schema、cutoff、检索和预测质量工作；不把任何 faithfulness 数字写成排名预测。
-3. **judge 或配额合同发生变化：** 立即停止当前候选的排名结论，重新生成合同 fixture 和请求预算；旧报告只能保留为历史记录。
-4. **validation leaderboard 开放：** 先提交最小变更的 A 线取得基线，再按单变量顺序测试检索、提示词、校准和 adapter；每次提交记录镜像 digest、代码版本和请求账本。
+内置策略配置是数值阈值的唯一来源；实验决策文件存放私有运行目录，不向官方 submission descriptor 增加字段。现有比较器的 `by_split.test` 结果可作为输入，不能直接把所有 train/calibration/test 混合的 overall 当验收。
 
-计划负责人应在每次官方 release 后更新本节状态；若状态无法判断，默认按更严格的上一条处理。
+## 7. 启动顺序与完成定义
 
-这份计划的成功标准不是“公开 smoke 看起来更高”，而是：在官方合同冻结后，用一次可复现、零整单位失败的提交，把 evidence faithfulness、target-aware prediction 和 empirical coverage 同时带入可排名区间。
+1. **先闭合最小链路。** 导入必要的官方合同修复并保留 fork 能力，建立版本化政策与判定器；用合成报告验证缺证据不通过，产生第一份真实状态清单。此步完成不要求生产服务或训练预算。
+2. **建立 incumbent 的证据底稿。** 用现有工具评测公开输入和合规私有开发集，记录缺口；冻结数据/模型/镜像与政策。公开无真值单位只计工程证据。
+3. **交付首轮有效改进。** 从开发集最大损失来源选择一个机制，跑完整 G1→开发筛选→新批次 G2。产出可复现的晋级或淘汰理由；不以必然晋级为目标。
+4. **扩大证据范围。** 补足不同领域及独立事件、生产运行和计费记录；生产 judge 可用后，固定候选执行 G3 两批确认。缺位项继续显示 `UNMEASURED`。
+5. **持续运行。** 每次晋级更新对应 incumbent，下一轮必须对比它；每次失败减少一个已证实的不确定性或补一条有效回归。周期评审时只看状态、提升、证据缺口和投入，不用完成任务数代替竞争力。
+
+内部交付完成定义：同一个不可变生产候选满足 G1/G2/G3，复现材料、工件许可和回滚版本完整；后续迭代继续挑战 incumbent。内部验收不能证明对手水平或隐藏测试排名，最终夺冠仍以官方结果为准。
