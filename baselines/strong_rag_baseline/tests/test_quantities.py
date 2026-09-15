@@ -123,6 +123,40 @@ def test_zero_change_interval_preserves_declared_domain_and_point(kind):
     assert -12 <= lo < 0 < hi <= 17
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "yield_change_bps",
+        "fx_return_pct",
+        "cpi_mom_pct",
+        "revenue_growth_pct",
+        "bid_to_cover_ratio",
+        "net_position_change_pct_oi",
+    ],
+)
+@pytest.mark.parametrize("point", [0.0, 2.0])
+def test_numeric_interval_policy_follows_quantity_across_target_types(name, point):
+    intervals = []
+    for kind in ("classification", "regression", "ranking"):
+        spec = TargetSpec.from_task(
+            {"target": {"name": name, "type": kind, "labels": ["down", "flat", "up"]}}
+        )
+        intervals.append(spec.interval(point))
+    assert intervals[0] == intervals[1] == intervals[2]
+
+
+def test_label_only_and_eps_beat_keep_their_existing_fallback_intervals():
+    label_only = TargetSpec.from_task(
+        {"target": {"name": "event", "type": "classification", "labels": ["yes", "no"]}}
+    )
+    eps = TargetSpec.from_task(
+        {"target": {"name": "eps", "type": "classification", "labels": ["beat", "miss"]}}
+    )
+    assert not label_only.requires_point
+    assert label_only.interval(0) == (-1, 1)
+    assert eps.interval(2) == pytest.approx((1.8, 2.2))
+
+
 def test_yield_projection_for_another_horizon_is_not_reused() -> None:
     result = predict(
         "yield_change_bps_intermeeting",
