@@ -134,7 +134,7 @@ flowchart TD
 | 配对提升 | [compare.py](../baselines/evaluation/compare.py) | 已有相同清单/评分器检查和事件 bootstrap；已增加领域及 target type 的事件区间；样本量和平衡权重由 acceptance 检查 |
 | 三层验收 | [acceptance.py](../baselines/evaluation/acceptance.py) 与版本化政策 | 已核对 G1 冻结清单、容器资源及同镜像故障工件，分别审计候选与基线；G3 生产证据通路待补，不将诊断当晋级 |
 | 故障恢复 | [faults.py](../baselines/evaluation/faults.py) | 用纯合成协议工件运行同镜像真实进程，核对请求接收记录、完整输出和 fallback；不替代预测质量或生产 judge |
-| 批次与开发版本 | [batch.py](../baselines/evaluation/batch.py)、[lifecycle.py](../baselines/evaluation/lifecycle.py) | 已冻结版本、输入/真值摘要和 seed，拒绝重复事件或角色重跑；轮次先冻结候选数、运行次数及最坏执行时长，运行前记账且失败不退额度；重验 G1/G2 后更新开发基线，支持关闭批次和回滚；开发搜索预算与生产确认待补 |
+| 批次与开发版本 | [batch.py](../baselines/evaluation/batch.py)、[lifecycle.py](../baselines/evaluation/lifecycle.py) | 已冻结版本、输入/真值摘要和 seed，拒绝重复事件或角色重跑；每轮只允许一个选定候选进入验收，另冻结运行次数及最坏执行时长，失败不退额度；重验 G1/G2 后更新开发基线，支持关闭批次和回滚；开发候选上限、搜索预算与生产确认待补 |
 
 判定器的最低回归要求：缺少 production judge 的 smoke 报告不能通过 G3；漏运行/漏真值不能通过 G2；重复事件或 seed 不能凑样本；不同 toolkit/judge 不可比较；均值变好但配对区间跨零不能晋级；失败单位不能删除；消耗过的验收批次不能重新标为独立；不同版本的报告不能拼成一次通过。
 

@@ -74,10 +74,8 @@ def _apply(state: dict, action: str, data: dict) -> None:
             if before["identity"] != current["incumbent"]:
                 raise ValueError("start a new round after incumbent changes")
             candidate = digest(data["versions"]["after"]["identity"])
-            if candidate in current["candidates"]:
-                raise ValueError("candidate already attempted in this round")
-            if len(current["candidates"]) >= current["budget"]["max_candidates"]:
-                raise ValueError("round candidate budget exhausted")
+            if current["candidates"]:
+                raise ValueError("only one candidate may enter acceptance per round")
             _check_capacity(current, data["role_budget"], roles=2)
             current["candidates"].append(candidate)
         state["pending"] = data
@@ -201,15 +199,11 @@ def start_round(root: Path, hypothesis: str, budget: dict) -> dict:
     policy = load_policy()
     if not hypothesis.strip():
         raise ValueError("record a falsifiable round hypothesis")
-    if set(budget) != {"max_candidates", "max_runs", "max_reserved_seconds"} or any(
+    if set(budget) != {"max_runs", "max_reserved_seconds"} or any(
         not isinstance(value, int) or isinstance(value, bool) or value < 1
         for value in budget.values()
     ):
-        raise ValueError(
-            "round budget requires positive integer candidate, run and time limits"
-        )
-    if budget["max_candidates"] > policy["max_candidates_per_round"]:
-        raise ValueError("candidate limit exceeds acceptance policy")
+        raise ValueError("round budget requires positive integer run and time limits")
     with batch.locked(root):
         state, events = _read(root)
         if not state:

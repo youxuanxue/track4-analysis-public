@@ -318,19 +318,21 @@ batch must be resolved or abandoned before another selection or rollback. These 
 change local development state: they do not assign production qualification, deploy or submit.
 
 Each round freezes one hypothesis, the incumbent, the acceptance policy and an external budget
-file. [`start_round`](lifecycle.py) defines its candidate, run and reserved-time limits; the
-candidate limit cannot exceed the [acceptance policy](acceptance-policy.json). Selection requires
-room for both roles and counts the candidate even if the batch is later abandoned. The batch runner
+file. [`start_round`](lifecycle.py) defines its run and reserved-time limits. Exactly one selected
+candidate may enter acceptance in a round, even when spare execution budget remains or its batch
+was abandoned. The development-candidate cap in the [acceptance policy](acceptance-policy.json)
+is for upstream development selection, not permission to test several candidates on fresh outcomes.
+Selection requires room for both roles. The batch runner
 reserves all planned runs and its maximum subprocess duration before publishing a start marker.
 Reservations survive errors and crashes, are never refunded, and are checked again with the run
 receipts. The subprocess uses the same duration calculated by `execution_budget` in
 [`batch.py`](batch.py), including its report/shutdown allowance.
 
-A candidate cannot be retried in the same round. `close-round` records the reason and retains the
+A candidate cannot be retried or replaced in the same round. `close-round` records the reason and retains the
 spent budget history; it cannot discard a pending batch. Starting another round requires that the
 previous one be closed. The supported runner remains offline grounded/smoke with no paid-call
 budget. The budget covers registered acceptance execution, not arbitrary shell commands or earlier
-development searches. Standalone diagnostic registries without a lifecycle remain available, but
+development searches. Budget files no longer accept a candidate-count override. Standalone diagnostic registries without a lifecycle remain available, but
 their already-started runs cannot be attached later as budgeted acceptance evidence.
 
 ```bash

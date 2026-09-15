@@ -54,7 +54,6 @@ def selected(tmp_path, monkeypatch):
         root,
         "Synthetic quantity correction improves heldout score",
         {
-            "max_candidates": 3,
             "max_runs": 6,
             "max_reserved_seconds": 3600,
         },
@@ -152,7 +151,6 @@ def test_selection_must_precede_results_and_match_current_incumbent(selected):
         root,
         "Invalid baseline selection control",
         {
-            "max_candidates": 3,
             "max_runs": 6,
             "max_reserved_seconds": 3600,
         },
@@ -242,7 +240,6 @@ def test_full_synthetic_g2_promotes_then_restores_frozen_baseline(
         root,
         "Synthetic full-sample positive control",
         {
-            "max_candidates": 1,
             "max_runs": 1080,
             "max_reserved_seconds": 600000,
         },
@@ -379,29 +376,26 @@ def next_batch(root, original, name):
     return batch.register(root, manifest, versions, [1])
 
 
-def test_round_caps_include_abandoned_candidates_and_spent_runs(selected):
+@pytest.mark.parametrize("resolved", [False, True])
+def test_one_selected_candidate_per_round_even_with_spare_budget(selected, resolved):
     root, directory, _ = selected
-    for index in range(3):
-        current = (
-            directory
-            if index == 0
-            else next_batch(root, directory, f"candidate-{index}")
-        )
-        if index:
-            lifecycle.attach(root, current)
+    if resolved:
+        complete(directory)
+        lifecycle.resolve(root)
+    else:
         with batch.locked(root):
-            record = batch.read_registration(current)
+            record = batch.read_registration(directory)
             for role in ("before", "after"):
-                lifecycle.reserve_run(root, current, role, record)
+                lifecycle.reserve_run(root, directory, role, record)
         lifecycle.abandon(root, "synthetic failed candidate")
     current = lifecycle.status(root)["round"]
-    assert len(current["candidates"]) == 3
-    assert sum(r["budget"]["runs"] for r in current["reservations"]) == 6
-    assert sum(r["budget"]["timeout_s"] for r in current["reservations"]) == 3600
-    fourth = next_batch(root, directory, "candidate-over-budget")
-    with pytest.raises(ValueError, match="candidate budget exhausted"):
-        lifecycle.attach(root, fourth)
-    closed = lifecycle.close_round(root, "candidate budget exhausted")
+    assert len(current["candidates"]) == 1
+    assert sum(r["budget"]["runs"] for r in current["reservations"]) == 2
+    assert sum(r["budget"]["timeout_s"] for r in current["reservations"]) == 1200
+    second = next_batch(root, directory, "second-candidate")
+    with pytest.raises(ValueError, match="only one candidate"):
+        lifecycle.attach(root, second)
+    closed = lifecycle.close_round(root, "selection consumed; return to development")
     assert closed["round"] is None
     assert closed["round_history"][-1]["reservations"] == current["reservations"]
 
@@ -429,7 +423,7 @@ def test_entire_pair_must_fit_budget_before_selection(selected, limit, value, ma
     root, directory, _ = selected
     lifecycle.abandon(root, "start a constrained control")
     lifecycle.close_round(root, "prior round cancelled")
-    budget = {"max_candidates": 3, "max_runs": 6, "max_reserved_seconds": 3600}
+    budget = {"max_runs": 6, "max_reserved_seconds": 3600}
     budget[limit] = value
     lifecycle.start_round(root, "bounded resource control", budget)
     other = next_batch(root, directory, "resource-limited")
@@ -441,7 +435,7 @@ def test_entire_pair_must_fit_budget_before_selection(selected, limit, value, ma
 
 def test_round_cannot_reset_while_active_or_with_pending_batch(selected):
     root, _, _ = selected
-    budget = {"max_candidates": 1, "max_runs": 2, "max_reserved_seconds": 1200}
+    budget = {"max_runs": 2, "max_reserved_seconds": 1200}
     with pytest.raises(ValueError, match="close the current"):
         lifecycle.start_round(root, "reset attempt", budget)
     with pytest.raises(ValueError, match="resolve pending"):
@@ -453,9 +447,9 @@ def test_round_cannot_reset_while_active_or_with_pending_batch(selected):
     [
         {"max_candidates": 4, "max_runs": 2, "max_reserved_seconds": 1200},
         {"max_candidates": True, "max_runs": 2, "max_reserved_seconds": 1200},
-        {"max_candidates": 1, "max_runs": 0, "max_reserved_seconds": 1200},
-        {"max_candidates": 1, "max_runs": 2, "max_reserved_seconds": 1.5},
-        {"max_candidates": 1, "max_runs": 2},
+        {"max_runs": 0, "max_reserved_seconds": 1200},
+        {"max_runs": 2, "max_reserved_seconds": 1.5},
+        {"max_runs": 2},
     ],
 )
 def test_invalid_round_budget_is_rejected(selected, budget):
@@ -481,7 +475,7 @@ def test_abandoned_run_budget_is_not_refunded(selected):
     lifecycle.start_round(
         root,
         "no refund after failure",
-        {"max_candidates": 3, "max_runs": 2, "max_reserved_seconds": 1200},
+        {"max_runs": 2, "max_reserved_seconds": 1200},
     )
     other = next_batch(root, directory, "first-attempt")
     lifecycle.attach(root, other)
@@ -489,7 +483,7 @@ def test_abandoned_run_budget_is_not_refunded(selected):
         lifecycle.reserve_run(root, other, "before", batch.read_registration(other))
     lifecycle.abandon(root, "process failed before report")
     later = next_batch(root, directory, "second-attempt")
-    with pytest.raises(ValueError, match="max_runs"):
+    with pytest.raises(ValueError, match="only one candidate"):
         lifecycle.attach(root, later)
     assert len(lifecycle.status(root)["round"]["reservations"]) == 1
 
