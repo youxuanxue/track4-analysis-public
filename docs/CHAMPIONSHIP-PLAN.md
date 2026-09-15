@@ -123,11 +123,11 @@ flowchart TD
 
 ## 6. 现有工具与待补自动化
 
-本节明确实施边界：已有诊断判定器和离线批次登记器；完整资源/故障证据、生产确认和晋级执行器仍未完成，当前决策保持 `KEEP_INCUMBENT`。
+本节明确实施边界：已有诊断判定器和离线批次登记器；客户端请求计数已接入诊断；完整资源/故障证据、生产确认和晋级执行器仍未完成，当前决策保持 `KEEP_INCUMBENT`。
 
 | 能力 | 当前入口 | 覆盖范围 / 下一步 |
 | --- | --- | --- |
-| 工程回归 | [preflight.sh](../scripts/preflight.sh)、[容器 smoke](../baselines/smoke_image.sh) | 已有 lint、测试、单位校验和离线容器入口；完整模型故障与资源账本验收仍需补证据 |
+| 工程回归 | [preflight.sh](../scripts/preflight.sh)、[容器 smoke](../baselines/smoke_image.sh) | 已有 lint、测试、单位校验和离线容器入口；已有客户端请求硬上限与账本诊断；完整模型故障、代理计费及资源验收仍需补证据 |
 | 数据及运行 | [evaluation CLI](../baselines/evaluation/__main__.py)、[dataset.py](../baselines/evaluation/dataset.py) | 已有外置真值、隔离运行、清单与 split 校验；[batch.py](../baselines/evaluation/batch.py) 已支持冻结、运行回执与一次性判定 |
 | 证据诊断 | [review.py](../baselines/evaluation/review.py) | 已有预测假设、引用原文和有来源的审阅标注；未审阅不得当支持 |
 | 区间实验 | [calibration.py](../baselines/evaluation/calibration.py) | 已有外置残差校准；结果可比较，但工件部署许可须单独核对 |

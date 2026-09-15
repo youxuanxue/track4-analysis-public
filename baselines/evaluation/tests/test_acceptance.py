@@ -211,3 +211,33 @@ def test_invalid_measured_score_is_failure_not_unmeasured(score):
     decision = audit(before, after, policy=load_policy())
     assert decision["goals"]["G2"]["status"] == "FAIL"
     assert "nonnumeric" in decision["input_error"]
+
+
+def test_request_accounting_distinguishes_offline_missing_and_overbudget():
+    from baselines.evaluation.acceptance import request_accounting
+
+    before, _ = reports(groups=1, repeats=1)
+    assert request_accounting(before)["status"] == "UNMEASURED"
+    before["mode"] = "grounded"
+    for row in before["runs"]:
+        row["diagnostics"] = {
+            "request_ledger": {
+                "version": 1,
+                "source": "offline",
+                "attempts_used": 0,
+                "attempts": [],
+            }
+        }
+    assert request_accounting(before)["status"] == "PASS"
+    before["mode"] = "model"
+    assert request_accounting(before)["status"] == "FAIL"
+    for row in before["runs"]:
+        row["diagnostics"]["request_ledger"] = {
+            "version": 1,
+            "source": "http-client",
+            "attempts_used": 26,
+            "attempt_limit": 25,
+            "output_token_limit": 1024,
+            "attempts": [{"sequence": i + 1, "status": "error"} for i in range(26)],
+        }
+    assert request_accounting(before)["status"] == "FAIL"

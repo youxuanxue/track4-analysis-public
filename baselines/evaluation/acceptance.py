@@ -129,6 +129,92 @@ def report_rows(report: dict) -> list[dict]:
     return rows
 
 
+def request_accounting(report: dict) -> dict:
+    from baselines.strong_rag_baseline.config import (
+        HOUSE_MAX_OUTPUT_TOKENS,
+        HOUSE_MAX_REQUESTS,
+    )
+
+    missing = 0
+    total = 0
+    for row in report_rows(report):
+        ledger = row.get("diagnostics", {}).get("request_ledger")
+        if ledger is None:
+            missing += 1
+            continue
+        if not isinstance(ledger, dict) or ledger.get("version") != 1:
+            return check("request_attempt_accounting", False, "invalid ledger")
+        attempts = ledger.get("attempts")
+        if not isinstance(attempts, list) or ledger.get("attempts_used") != len(
+            attempts
+        ):
+            return check(
+                "request_attempt_accounting",
+                False,
+                "attempt count differs from ledger rows",
+            )
+        if ledger.get("source") == "offline":
+            if report.get("mode") != "grounded" or attempts:
+                return check(
+                    "request_attempt_accounting",
+                    False,
+                    "offline ledger cannot account for model runs",
+                )
+        elif ledger.get("source") == "http-client":
+            limit, output_limit = (
+                ledger.get("attempt_limit"),
+                ledger.get("output_token_limit"),
+            )
+            if (
+                not finite(limit)
+                or not isinstance(limit, int)
+                or not 1 <= limit <= HOUSE_MAX_REQUESTS
+                or not finite(output_limit)
+                or not isinstance(output_limit, int)
+                or not 1 <= output_limit <= HOUSE_MAX_OUTPUT_TOKENS
+                or len(attempts) > limit
+            ):
+                return check(
+                    "request_attempt_accounting",
+                    False,
+                    "request or output cap exceeded",
+                )
+            for index, attempt in enumerate(attempts, 1):
+                if (
+                    not isinstance(attempt, dict)
+                    or attempt.get("sequence") != index
+                    or attempt.get("status") not in ("success", "error")
+                ):
+                    return check(
+                        "request_attempt_accounting",
+                        False,
+                        "missing, duplicated or unfinished attempt",
+                    )
+                completion = attempt.get("completion_tokens")
+                if completion is not None and (
+                    not finite(completion)
+                    or not isinstance(completion, int)
+                    or not 0 <= completion <= output_limit
+                ):
+                    return check(
+                        "request_attempt_accounting",
+                        False,
+                        "reported output exceeds cap or is invalid",
+                    )
+        else:
+            return check("request_attempt_accounting", None, "unknown ledger source")
+        total += len(attempts)
+    return check(
+        "request_attempt_accounting",
+        None if missing else True,
+        {
+            "attempts": total,
+            "missing_runs": missing,
+            "scope": "client diagnostics; not proxy billing verification",
+        },
+    )
+
+
 def engineering_checks(report: dict) -> list[dict]:
     rows = report_rows(report)
     checks = [
@@ -212,6 +298,7 @@ def engineering_checks(report: dict) -> list[dict]:
             "local process or an image name alone does not establish container execution",
         )
     )
+    checks.append(request_accounting(report))
     return checks
 
 
