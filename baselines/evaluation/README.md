@@ -294,7 +294,8 @@ evidence keeps that G1 requirement unmeasured; batch decisions still do not exec
 
 [The development lifecycle](lifecycle.py) applies a batch decision to the retained incumbent.
 Initialize it in the same registry with a clean frozen version, then attach a newly registered
-batch before either role starts. The attached baseline must be the current incumbent, and
+batch before either role starts, after opening a budgeted round with `start-round`.
+The attached baseline must be the current incumbent, and
 the candidate must be a different frozen version. After both runs and `batch decide`, use
 `lifecycle resolve`: it recomputes the saved decision from the original receipts, reports and
 recovery artifacts, verifies that both versions still exist unchanged, and updates the development
@@ -304,6 +305,7 @@ the incumbent. The initial version is explicitly a bootstrap baseline, not an ac
 ```bash
 python -m baselines.evaluation.lifecycle --help
 python -m baselines.evaluation.lifecycle --registry /private/evaluation/registry initialize --help
+python -m baselines.evaluation.lifecycle --registry /private/evaluation/registry start-round --help
 python -m baselines.evaluation.lifecycle --registry /private/evaluation/registry attach --help
 ```
 
@@ -314,6 +316,22 @@ previous version was the bootstrap baseline, it remains unqualified. `abandon` c
 batch with a reason while preserving its event reservations and consumed-run markers. A pending
 batch must be resolved or abandoned before another selection or rollback. These commands only
 change local development state: they do not assign production qualification, deploy or submit.
+
+Each round freezes one hypothesis, the incumbent, the acceptance policy and an external budget
+file. [`start_round`](lifecycle.py) defines its candidate, run and reserved-time limits; the
+candidate limit cannot exceed the [acceptance policy](acceptance-policy.json). Selection requires
+room for both roles and counts the candidate even if the batch is later abandoned. The batch runner
+reserves all planned runs and its maximum subprocess duration before publishing a start marker.
+Reservations survive errors and crashes, are never refunded, and are checked again with the run
+receipts. The subprocess uses the same duration calculated by `execution_budget` in
+[`batch.py`](batch.py), including its report/shutdown allowance.
+
+A candidate cannot be retried in the same round. `close-round` records the reason and retains the
+spent budget history; it cannot discard a pending batch. Starting another round requires that the
+previous one be closed. The supported runner remains offline grounded/smoke with no paid-call
+budget. The budget covers registered acceptance execution, not arbitrary shell commands or earlier
+development searches. Standalone diagnostic registries without a lifecycle remain available, but
+their already-started runs cannot be attached later as budgeted acceptance evidence.
 
 ```bash
 python -m baselines.evaluation.acceptance --help
@@ -336,7 +354,8 @@ anti-tamper service against someone who controls its files. It does not establis
 that the data were previously unseen by people, that event IDs are independent,
 or that source licensing and cutoff provenance are valid. These still require
 separate provenance evidence. Production eligibility, equivalence and independent confirmations
-remain unmeasured until their evidence paths are implemented. Candidate-count and cross-run budget
-control also remain separate work; the lifecycle does not declare the overall goal complete.
+remain unmeasured until their evidence paths are implemented. Development-search budgets still
+need integration with candidate selection; registered acceptance execution now has round limits.
+The lifecycle does not declare the overall goal complete.
 Saved decisions produced by a different evaluator revision may fail recomputation; keep their
 original evidence instead of rewriting them to pass a new transition.

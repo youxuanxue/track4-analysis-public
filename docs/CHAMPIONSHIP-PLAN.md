@@ -123,7 +123,7 @@ flowchart TD
 
 ## 6. 现有工具与待补自动化
 
-本节明确实施边界：已有诊断判定器、离线批次登记器、冻结容器清单及资源/故障核验；客户端请求计数已接入诊断；开发晋级和回滚已接通，生产确认、生产资格登记及跨运行预算控制仍未完成。没有真实验收通过的候选时继续保留 incumbent。
+本节明确实施边界：已有诊断判定器、离线批次登记器、冻结容器清单及资源/故障核验；客户端请求计数已接入诊断；开发晋级、回滚和登记验收批次的轮次预算已接通。开发搜索预算、生产确认及生产资格登记仍未完成。没有真实验收通过的候选时继续保留 incumbent。
 
 | 能力 | 当前入口 | 覆盖范围 / 下一步 |
 | --- | --- | --- |
@@ -134,7 +134,7 @@ flowchart TD
 | 配对提升 | [compare.py](../baselines/evaluation/compare.py) | 已有相同清单/评分器检查和事件 bootstrap；已增加领域及 target type 的事件区间；样本量和平衡权重由 acceptance 检查 |
 | 三层验收 | [acceptance.py](../baselines/evaluation/acceptance.py) 与版本化政策 | 已核对 G1 冻结清单、容器资源及同镜像故障工件，分别审计候选与基线；G3 生产证据通路待补，不将诊断当晋级 |
 | 故障恢复 | [faults.py](../baselines/evaluation/faults.py) | 用纯合成协议工件运行同镜像真实进程，核对请求接收记录、完整输出和 fallback；不替代预测质量或生产 judge |
-| 批次与开发版本 | [batch.py](../baselines/evaluation/batch.py)、[lifecycle.py](../baselines/evaluation/lifecycle.py) | 已冻结版本、输入/真值摘要和 seed，拒绝重复事件或角色重跑；先绑定候选再运行，重验 G1/G2 后更新开发基线；支持保留旧版、关闭中断批次和回滚，生产确认及轮次预算待补 |
+| 批次与开发版本 | [batch.py](../baselines/evaluation/batch.py)、[lifecycle.py](../baselines/evaluation/lifecycle.py) | 已冻结版本、输入/真值摘要和 seed，拒绝重复事件或角色重跑；轮次先冻结候选数、运行次数及最坏执行时长，运行前记账且失败不退额度；重验 G1/G2 后更新开发基线，支持关闭批次和回滚；开发搜索预算与生产确认待补 |
 
 判定器的最低回归要求：缺少 production judge 的 smoke 报告不能通过 G3；漏运行/漏真值不能通过 G2；重复事件或 seed 不能凑样本；不同 toolkit/judge 不可比较；均值变好但配对区间跨零不能晋级；失败单位不能删除；消耗过的验收批次不能重新标为独立；不同版本的报告不能拼成一次通过。
 

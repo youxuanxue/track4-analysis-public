@@ -50,6 +50,15 @@ def selected(tmp_path, monkeypatch):
 
     monkeypatch.setattr(batch, "snapshot", snapshot)
     lifecycle.initialize(root, versions["before"])
+    lifecycle.start_round(
+        root,
+        "Synthetic quantity correction improves heldout score",
+        {
+            "max_candidates": 3,
+            "max_runs": 6,
+            "max_reserved_seconds": 3600,
+        },
+    )
     directory = batch.register(root, manifest, versions, [1])
     lifecycle.attach(root, directory)
     return root, directory, identity
@@ -58,7 +67,15 @@ def selected(tmp_path, monkeypatch):
 def complete(directory):
     record = batch.read_registration(directory)
     for role in ("before", "after"):
+        with batch.locked(directory.parent.parent):
+            reservation = lifecycle.reserve_run(
+                directory.parent.parent, directory, role, record
+            )
         completed_report(directory, role, record)
+        path = directory / f"{role}.started.json"
+        started = json.loads(path.read_text())
+        started["round_reservation"] = reservation
+        path.write_text(json.dumps(started))
     return batch.decide(directory)
 
 
@@ -131,6 +148,15 @@ def test_selection_must_precede_results_and_match_current_incumbent(selected):
     shutil.rmtree(root / "lifecycle")
     record = batch.read_registration(directory)
     lifecycle.initialize(root, record["versions"]["after"]["spec"])
+    lifecycle.start_round(
+        root,
+        "Invalid baseline selection control",
+        {
+            "max_candidates": 3,
+            "max_runs": 6,
+            "max_reserved_seconds": 3600,
+        },
+    )
     with pytest.raises(ValueError, match="current incumbent"):
         lifecycle.attach(root, directory)
     batch.write_new(
@@ -212,6 +238,15 @@ def test_full_synthetic_g2_promotes_then_restores_frozen_baseline(
         lambda spec: copy.deepcopy(versions[spec["repo"]]["identity"]),
     )
     lifecycle.initialize(root, versions["before"]["spec"])
+    lifecycle.start_round(
+        root,
+        "Synthetic full-sample positive control",
+        {
+            "max_candidates": 1,
+            "max_runs": 1080,
+            "max_reserved_seconds": 600000,
+        },
+    )
     before, after = reports()
     fields = (
         "case_id",
@@ -228,6 +263,7 @@ def test_full_synthetic_g2_promotes_then_restores_frozen_baseline(
         "versions": versions,
         "mode": "grounded",
         "profile": "smoke",
+        "budget": {"timeout_s": 480, "model_request_attempts": 0},
         "expected_runs": [{k: row[k] for k in fields} for row in before["runs"]],
         "faults": {
             role: {
@@ -248,6 +284,8 @@ def test_full_synthetic_g2_promotes_then_restores_frozen_baseline(
             )
     lifecycle.attach(root, directory)
     for role, report in (("before", before), ("after", after)):
+        with batch.locked(root):
+            reservation = lifecycle.reserve_run(root, directory, role, record)
         report.update(
             provenance=versions[role]["identity"], mode="grounded", profile="smoke"
         )
@@ -285,7 +323,8 @@ def test_full_synthetic_g2_promotes_then_restores_frozen_baseline(
         report_path = directory / role / "report.json"
         batch.write_new(report_path, report)
         batch.write_new(
-            directory / f"{role}.started.json", {"registration_digest": directory.name}
+            directory / f"{role}.started.json",
+            {"registration_digest": directory.name, "round_reservation": reservation},
         )
         batch.write_new(
             directory / f"{role}.receipt.json",
@@ -318,3 +357,147 @@ def test_full_synthetic_g2_promotes_then_restores_frozen_baseline(
     assert state["rollback"] == []
     with pytest.raises(ValueError, match="no retained"):
         lifecycle.rollback(root, "already restored")
+
+
+def next_batch(root, original, name):
+    record = batch.read_registration(original)
+    unit = build_unit(root.parent / name)
+    task_path = unit / "task.json"
+    task = json.loads(task_path.read_text())
+    task["prompt"] = task.get("prompt", "") + f" Synthetic event {name}."
+    task_path.write_text(json.dumps(task))
+    manifest = root.parent / f"{name}.json"
+    from pathlib import Path
+
+    source = json.loads(Path(record["manifest"]).read_text())
+    source["cases"][0].update(id=name, group=name, unit_dir=str(unit))
+    batch.write_new(manifest, source)
+    versions = {
+        role: dict(record["versions"][role]["spec"]) for role in ("before", "after")
+    }
+    versions["after"]["repo"] = name
+    return batch.register(root, manifest, versions, [1])
+
+
+def test_round_caps_include_abandoned_candidates_and_spent_runs(selected):
+    root, directory, _ = selected
+    for index in range(3):
+        current = (
+            directory
+            if index == 0
+            else next_batch(root, directory, f"candidate-{index}")
+        )
+        if index:
+            lifecycle.attach(root, current)
+        with batch.locked(root):
+            record = batch.read_registration(current)
+            for role in ("before", "after"):
+                lifecycle.reserve_run(root, current, role, record)
+        lifecycle.abandon(root, "synthetic failed candidate")
+    current = lifecycle.status(root)["round"]
+    assert len(current["candidates"]) == 3
+    assert sum(r["budget"]["runs"] for r in current["reservations"]) == 6
+    assert sum(r["budget"]["timeout_s"] for r in current["reservations"]) == 3600
+    fourth = next_batch(root, directory, "candidate-over-budget")
+    with pytest.raises(ValueError, match="candidate budget exhausted"):
+        lifecycle.attach(root, fourth)
+    closed = lifecycle.close_round(root, "candidate budget exhausted")
+    assert closed["round"] is None
+    assert closed["round_history"][-1]["reservations"] == current["reservations"]
+
+
+def test_run_reservation_survives_crash_before_started_marker(selected):
+    root, directory, _ = selected
+    with batch.locked(root):
+        lifecycle.reserve_run(
+            root, directory, "before", batch.read_registration(directory)
+        )
+    assert not (directory / "before.started.json").exists()
+    with pytest.raises(ValueError, match="already consumed"):
+        batch.run(directory, "before")
+    assert len(lifecycle.status(root)["round"]["reservations"]) == 1
+
+
+@pytest.mark.parametrize(
+    "limit,value,match",
+    [
+        ("max_runs", 1, "max_runs"),
+        ("max_reserved_seconds", 1199, "max_reserved_seconds"),
+    ],
+)
+def test_entire_pair_must_fit_budget_before_selection(selected, limit, value, match):
+    root, directory, _ = selected
+    lifecycle.abandon(root, "start a constrained control")
+    lifecycle.close_round(root, "prior round cancelled")
+    budget = {"max_candidates": 3, "max_runs": 6, "max_reserved_seconds": 3600}
+    budget[limit] = value
+    lifecycle.start_round(root, "bounded resource control", budget)
+    other = next_batch(root, directory, "resource-limited")
+    with pytest.raises(ValueError, match=match):
+        lifecycle.attach(root, other)
+    current = lifecycle.status(root)["round"]
+    assert current["candidates"] == [] and current["reservations"] == []
+
+
+def test_round_cannot_reset_while_active_or_with_pending_batch(selected):
+    root, _, _ = selected
+    budget = {"max_candidates": 1, "max_runs": 2, "max_reserved_seconds": 1200}
+    with pytest.raises(ValueError, match="close the current"):
+        lifecycle.start_round(root, "reset attempt", budget)
+    with pytest.raises(ValueError, match="resolve pending"):
+        lifecycle.close_round(root, "reset attempt")
+
+
+@pytest.mark.parametrize(
+    "budget",
+    [
+        {"max_candidates": 4, "max_runs": 2, "max_reserved_seconds": 1200},
+        {"max_candidates": True, "max_runs": 2, "max_reserved_seconds": 1200},
+        {"max_candidates": 1, "max_runs": 0, "max_reserved_seconds": 1200},
+        {"max_candidates": 1, "max_runs": 2, "max_reserved_seconds": 1.5},
+        {"max_candidates": 1, "max_runs": 2},
+    ],
+)
+def test_invalid_round_budget_is_rejected(selected, budget):
+    root, _, _ = selected
+    with pytest.raises(ValueError, match="limit|budget"):
+        lifecycle.start_round(root, "invalid budget control", budget)
+
+
+def test_legacy_unreserved_results_cannot_be_promoted(selected):
+    root, directory, _ = selected
+    record = batch.read_registration(directory)
+    for role in ("before", "after"):
+        completed_report(directory, role, record)
+    with pytest.raises(ValueError, match="lacks a frozen round"):
+        batch.decide(directory)
+    assert lifecycle.status(root)["pending"]["batch_id"] == directory.name
+
+
+def test_abandoned_run_budget_is_not_refunded(selected):
+    root, directory, _ = selected
+    lifecycle.abandon(root, "new control")
+    lifecycle.close_round(root, "new control")
+    lifecycle.start_round(
+        root,
+        "no refund after failure",
+        {"max_candidates": 3, "max_runs": 2, "max_reserved_seconds": 1200},
+    )
+    other = next_batch(root, directory, "first-attempt")
+    lifecycle.attach(root, other)
+    with batch.locked(root):
+        lifecycle.reserve_run(root, other, "before", batch.read_registration(other))
+    lifecycle.abandon(root, "process failed before report")
+    later = next_batch(root, directory, "second-attempt")
+    with pytest.raises(ValueError, match="max_runs"):
+        lifecycle.attach(root, later)
+    assert len(lifecycle.status(root)["round"]["reservations"]) == 1
+
+
+def test_standalone_batch_command_cannot_bypass_selected_round(selected):
+    root, directory, _ = selected
+    other = next_batch(root, directory, "unselected")
+    with pytest.raises(ValueError, match="selected pair"):
+        batch.run(other, "after")
+    assert not (other / "after.started.json").exists()
+    assert lifecycle.status(root)["round"]["reservations"] == []

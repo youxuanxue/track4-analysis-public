@@ -240,11 +240,27 @@ def validate_report(report: dict, record: dict, role: str) -> None:
         raise ValueError("report execution mode differs from registration")
 
 
+def execution_budget(record: dict) -> dict:
+    """One role reserves all planned runs plus evaluator shutdown/report overhead."""
+    count = len(record["expected_runs"])
+    timeout = record["budget"]["timeout_s"]
+    if (
+        not isinstance(timeout, int)
+        or isinstance(timeout, bool)
+        or timeout < 1
+        or count < 1
+    ):
+        raise ValueError("invalid frozen execution budget")
+    return {"runs": count, "timeout_s": timeout * count + 120}
+
+
 def run(directory: Path, role: str) -> Path:
     if role not in {"before", "after"}:
         raise ValueError("role must be before or after")
     root = directory.parent.parent
     with locked(root):
+        if (directory / f"{role}.started.json").exists():
+            raise FileExistsError("run already started; do not retry")
         record = read_registration(directory)
         frozen = record["versions"][role]
         current = snapshot(frozen["spec"])
@@ -256,10 +272,16 @@ def run(directory: Path, role: str) -> Path:
             != record["manifest_digest"]
         ):
             raise ValueError("manifest changed since registration")
+        reservation = None
+        if (root / "lifecycle").exists():
+            from .lifecycle import reserve_run
+
+            reservation = reserve_run(root, directory, role, record)
         # Starting burns this role, even if the process crashes. Never retry a
         # partially observed acceptance run under another seed or the same batch.
         write_new(
-            directory / f"{role}.started.json", {"registration_digest": directory.name}
+            directory / f"{role}.started.json",
+            {"registration_digest": directory.name, "round_reservation": reservation},
         )
     spec = frozen["spec"]
     out = directory / role
@@ -289,7 +311,7 @@ def run(directory: Path, role: str) -> Path:
             cwd=spec["repo"],
             stdout=output,
             stderr=subprocess.STDOUT,
-            timeout=record["budget"]["timeout_s"] * len(record["expected_runs"]) + 120,
+            timeout=execution_budget(record)["timeout_s"],
         )
     if completed.returncode not in (0, 1):
         raise ValueError(
@@ -320,6 +342,12 @@ def verified_reports(directory: Path) -> tuple[dict, dict, dict]:
     for role in ("before", "after"):
         started = json.loads((directory / f"{role}.started.json").read_text())
         receipt = json.loads((directory / f"{role}.receipt.json").read_text())
+        if (directory.parent.parent / "lifecycle").exists():
+            from .lifecycle import verify_reservation
+
+            verify_reservation(
+                directory.parent.parent, directory, role, started, record
+            )
         report_path = directory / role / "report.json"
         if (
             started.get("registration_digest") != directory.name
