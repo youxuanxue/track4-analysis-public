@@ -90,27 +90,8 @@ def verify_faults(record: dict) -> dict[str, Path]:
     return paths
 
 
-def register(
-    root: Path,
-    manifest: Path,
-    versions: dict,
-    seeds: list[int],
-    *,
-    faults: dict[str, Path] | None = None,
-    profile: str = "smoke",
-    judge_spec: Path | None = None,
-) -> Path:
-    from .production import freeze_judge
-
-    if profile not in ("smoke", "production"):
-        raise ValueError("profile must be smoke or production")
-    if (profile == "production") != (judge_spec is not None):
-        raise ValueError("only production registration requires an explicit judge spec")
-    # Refuse missing or changed configuration before reserving any fresh events.
-    judge = freeze_judge(judge_spec) if judge_spec is not None else None
+def freeze_roster(manifest: Path, seeds: list[int], split: str = "test") -> list[dict]:
     require_external(manifest, public_roots())
-    if set(versions) != {"before", "after"}:
-        raise ValueError("freeze exactly before and after versions")
     if (
         not seeds
         or len(set(seeds)) != len(seeds)
@@ -122,11 +103,11 @@ def register(
         raise ValueError("distinct unsigned integer seeds required")
     cases = load_cases(units=None, manifest=manifest)
     if any(
-        case.split != "test" or case.truth_path is None or not case.domain
+        case.split != split or case.truth_path is None or not case.domain
         for case in cases
     ):
         raise ValueError(
-            "sealed batches require test-only cases with truth and domains"
+            f"sealed batches require {split}-only cases with truth and domains"
         )
     expected = []
     for case in cases:
@@ -141,12 +122,44 @@ def register(
                     "seed": seed,
                     "group": case.group,
                     "domain": case.domain,
-                    "split": "test",
+                    "split": split,
                     "target_type": kind,
                     "input_digest": input_digest,
                     "truth_digest": truth_digest,
                 }
             )
+    return expected
+
+
+def register(
+    root: Path,
+    manifest: Path,
+    versions: dict,
+    seeds: list[int],
+    *,
+    faults: dict[str, Path] | None = None,
+    profile: str = "smoke",
+    judge_spec: Path | None = None,
+    purpose: str = "acceptance",
+) -> Path:
+    from .production import freeze_judge
+
+    if purpose not in ("acceptance", "development"):
+        raise ValueError("invalid batch purpose")
+    if purpose == "development" and profile != "smoke":
+        raise ValueError("development search requires offline smoke")
+    if profile not in ("smoke", "production"):
+        raise ValueError("profile must be smoke or production")
+    if (profile == "production") != (judge_spec is not None):
+        raise ValueError("only production registration requires an explicit judge spec")
+    # Refuse missing or changed configuration before reserving any fresh events.
+    judge = freeze_judge(judge_spec) if judge_spec is not None else None
+    require_external(manifest, public_roots())
+    if set(versions) != {"before", "after"}:
+        raise ValueError("freeze exactly before and after versions")
+    expected = freeze_roster(
+        manifest, seeds, "calibration" if purpose == "development" else "test"
+    )
     frozen = {
         key: {"spec": spec, "identity": snapshot(spec)}
         for key, spec in versions.items()
@@ -173,6 +186,8 @@ def register(
         },
         "scope": "offline preregistration; does not certify unseen data, production runtime or artifact eligibility",
     }
+    if purpose == "development":
+        record["purpose"] = purpose
     if judge is not None:
         record["production_judge"] = judge
     if faults is not None:
@@ -189,20 +204,33 @@ def register(
     batch_id = digest(record)
     with locked(root):
         events = root / "events"
+        development_events = root / "development-events"
         events.mkdir(exist_ok=True)
         for row in expected:
             for key in ("group", "input_digest"):
                 marker = events / digest({key: row[key]})
-                if marker.exists():
+                if marker.exists() or (
+                    purpose == "acceptance"
+                    and (development_events / marker.name).exists()
+                ):
                     raise ValueError(
                         "event or input has already been reserved/consumed by a sealed batch"
                     )
+        if purpose == "development":
+            from .search import register_candidate
+
+            register_candidate(root, batch_id, record)
         directory = root / "batches" / batch_id
         directory.mkdir(parents=True, exist_ok=False)
         write_new(directory / "registration.json", record)
         for key in ("group", "input_digest"):
             for value in {row[key] for row in expected}:
-                write_new(events / digest({key: value}), {"batch_id": batch_id})
+                marker = events / digest({key: value})
+                if purpose == "development":
+                    folder = development_events / marker.name
+                    folder.mkdir(parents=True, exist_ok=True)
+                    marker = folder / batch_id
+                write_new(marker, {"batch_id": batch_id})
     return directory
 
 
@@ -220,7 +248,15 @@ def read_registration(directory: Path) -> dict:
     events = directory.parent.parent / "events"
     for key in ("group", "input_digest"):
         for value in {row[key] for row in record["expected_runs"]}:
-            marker = json.loads((events / digest({key: value})).read_text())
+            marker_path = events / digest({key: value})
+            if record.get("purpose") == "development":
+                marker_path = (
+                    directory.parent.parent
+                    / "development-events"
+                    / marker_path.name
+                    / directory.name
+                )
+            marker = json.loads(marker_path.read_text())
             if marker.get("batch_id") != directory.name:
                 raise ValueError(
                     "event reservation is missing or belongs to another batch"
@@ -295,7 +331,11 @@ def run(directory: Path, role: str) -> Path:
             raise ValueError("manifest changed since registration")
         reservation = None
         confirmation = None
-        if (directory / "confirmation.json").exists():
+        if record.get("purpose") == "development":
+            from .search import reserve_run
+
+            reservation = reserve_run(root, directory, role, record)
+        elif (directory / "confirmation.json").exists():
             from .confirmations import reserve_run
 
             confirmation = reserve_run(directory, role)
@@ -373,7 +413,11 @@ def verified_reports(directory: Path) -> tuple[dict, dict, dict]:
     for role in ("before", "after"):
         started = json.loads((directory / f"{role}.started.json").read_text())
         receipt = json.loads((directory / f"{role}.receipt.json").read_text())
-        if (directory / "confirmation.json").exists():
+        if record.get("purpose") == "development":
+            from .search import verify_reservation
+
+            verify_reservation(directory, role, started, record)
+        elif (directory / "confirmation.json").exists():
             from .confirmations import verify_reservation
 
             verify_reservation(directory, role, started)
@@ -404,6 +448,8 @@ def evaluate_registered(directory: Path) -> dict:
     from .acceptance import audit, check, stage
 
     before, after, record = verified_reports(directory)
+    if record.get("purpose") == "development":
+        raise ValueError("development evidence cannot receive an acceptance decision")
     faults = verify_faults(record)
     decision = audit(
         before,
@@ -487,6 +533,9 @@ def main(argv: list[str] | None = None) -> int:
     create.add_argument("--after-faults", type=Path)
     create.add_argument("--profile", choices=("smoke", "production"), default="smoke")
     create.add_argument("--judge-spec", type=Path)
+    create.add_argument(
+        "--purpose", choices=("acceptance", "development"), default="acceptance"
+    )
     execute = commands.add_parser("run")
     execute.add_argument("--batch", type=Path, required=True)
     execute.add_argument("--role", choices=("before", "after"), required=True)
@@ -513,6 +562,7 @@ def main(argv: list[str] | None = None) -> int:
                     faults=faults or None,
                     profile=args.profile,
                     judge_spec=args.judge_spec,
+                    purpose=args.purpose,
                 )
             )
         elif args.command == "run":

@@ -46,6 +46,10 @@ def _apply(state: dict, action: str, data: dict) -> None:
         )
     elif not state:
         raise ValueError("initialize the lifecycle first")
+    elif action.startswith("development_"):
+        from .search import apply
+
+        apply(state, action, data)
     elif action == "start_round":
         if state["pending"] is not None or state["round"] is not None:
             raise ValueError("close the current round before starting another")
@@ -195,8 +199,22 @@ def _check_capacity(current: dict, budget: dict, roles: int = 1) -> None:
             raise ValueError(f"round {limit} budget exhausted")
 
 
-def start_round(root: Path, hypothesis: str, budget: dict) -> dict:
+def start_round(
+    root: Path,
+    hypothesis: str,
+    budget: dict,
+    *,
+    development_manifest: Path | None = None,
+    seeds: list[int] | None = None,
+) -> dict:
     policy = load_policy()
+    if (development_manifest is None) != (seeds is None):
+        raise ValueError("development manifest and seeds must be frozen together")
+    development = None
+    if development_manifest is not None:
+        from .search import freeze
+
+        development = freeze(development_manifest, seeds)
     if not hypothesis.strip():
         raise ValueError("record a falsifiable round hypothesis")
     if set(budget) != {"max_runs", "max_reserved_seconds"} or any(
@@ -218,6 +236,8 @@ def start_round(root: Path, hypothesis: str, budget: dict) -> dict:
             "paid_call_budget": 0,
             "previous": events[-1]["digest"],
         }
+        if development is not None:
+            data["development"] = development
         return _append(root, "start_round", {**data, "id": digest(data)})
 
 
@@ -240,6 +260,10 @@ def reserve_run(root: Path, directory: Path, role: str, record: dict) -> dict:
         or record["budget"]["model_request_attempts"] != 0
     ):
         raise ValueError("round runner only authorizes offline grounded/smoke work")
+    if current.get("development") is not None:
+        from .search import verify_selection
+
+        verify_selection(root, record)
     reservation = {
         "round_id": current["id"],
         "batch_id": directory.name,
@@ -268,6 +292,14 @@ def verify_reservation(
         or reservation["budget"] != batch.execution_budget(record)
     ):
         raise ValueError("run reservation differs from the round journal")
+    current = next(r for r in rounds if r["id"] == reservation["round_id"])
+    if (
+        current.get("development") is not None
+        and record.get("purpose") != "development"
+    ):
+        from .search import verify_selection
+
+        verify_selection(root, record, current=current)
 
 
 def attach(root: Path, directory: Path) -> dict:
@@ -280,6 +312,8 @@ def attach(root: Path, directory: Path) -> dict:
         if current is None:
             raise ValueError("start a budgeted round before selecting a candidate")
         record = batch.read_registration(directory)
+        if record.get("purpose") == "development":
+            raise ValueError("development batch cannot be attached as fresh acceptance")
         if record["profile"] != "smoke" or (directory / "confirmation.json").exists():
             raise ValueError(
                 "development selection requires smoke; seal production confirmations separately"
@@ -291,6 +325,11 @@ def attach(root: Path, directory: Path) -> dict:
             for name in ("before.started.json", "after.started.json", "decision.json")
         ):
             raise ValueError("select the candidate before either acceptance run starts")
+        search_binding = None
+        if current.get("development") is not None:
+            from .search import verify_selection
+
+            search_binding = verify_selection(root, record)
         for frozen in record["versions"].values():
             if _frozen(frozen["spec"]) != frozen:
                 raise ValueError("version changed since registration")
@@ -303,6 +342,7 @@ def attach(root: Path, directory: Path) -> dict:
                 "policy_digest": record["policy_digest"],
                 "round_id": current["id"],
                 "role_budget": batch.execution_budget(record),
+                **({"development_selection": search_binding} if search_binding else {}),
             },
         )
 
@@ -378,6 +418,8 @@ def main(argv: list[str] | None = None) -> int:
     start = commands.add_parser("start-round")
     start.add_argument("--hypothesis", required=True)
     start.add_argument("--budget", type=Path, required=True)
+    start.add_argument("--development-manifest", type=Path)
+    start.add_argument("--seeds", nargs="+", type=int)
     commands.add_parser("close-round").add_argument("--reason", required=True)
     for name in ("rollback", "abandon"):
         commands.add_parser(name).add_argument("--reason", required=True)
@@ -398,7 +440,11 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "start-round":
             require_external(args.budget, public_roots())
             result = start_round(
-                root, args.hypothesis, json.loads(args.budget.read_text())
+                root,
+                args.hypothesis,
+                json.loads(args.budget.read_text()),
+                development_manifest=args.development_manifest,
+                seeds=args.seeds,
             )
         elif args.command == "close-round":
             result = close_round(root, args.reason)

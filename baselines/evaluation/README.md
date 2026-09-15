@@ -280,7 +280,7 @@ comparisons. It is evaluator metadata, never an agent input. Missing domains on
 older reports do not invent cross-domain generalization. Acceptance uses only test
 reports, balanced event weights and independent event counts, not entity counts.
 
-[Batch registration](batch.py) freezes a test-only manifest, policy, before/after
+[Batch registration](batch.py) freezes a test-only acceptance manifest, policy, before/after
 source and toolkit identities, input and truth digests, and seeds before invoking
 prediction. A versions file maps `before` and `after` to objects containing `repo`,
 `python` and `image` (null for a local process). The runner currently supports only
@@ -331,9 +331,42 @@ receipts. The subprocess uses the same duration calculated by `execution_budget`
 A candidate cannot be retried or replaced in the same round. `close-round` records the reason and retains the
 spent budget history; it cannot discard a pending batch. Starting another round requires that the
 previous one be closed. Development rounds run offline grounded/smoke with no paid-call
-budget. The budget covers registered acceptance execution, not arbitrary shell commands or earlier
-development searches. Budget files no longer accept a candidate-count override. Standalone diagnostic registries without a lifecycle remain available, but
+budget. Budget files do not accept a candidate-count override. Standalone diagnostic registries without a lifecycle remain available, but
 their already-started runs cannot be attached later as budgeted acceptance evidence.
+
+[Development search](search.py) can share that round's budget with fresh acceptance. Start the
+round with the development-manifest and seed arguments shown by `start-round --help`; this
+freezes a calibration-split roster, its input/truth hashes, seeds and the policy's candidate cap.
+The calibration split is reused for development selection because the manifest has no separate
+development split. Use a separate manifest from any fitting/calibration process, and retain its
+selection provenance. A round without these arguments retains the existing acceptance-only
+workflow for a previously selected pair; it does not certify an earlier development-search budget.
+
+Register each frozen candidate through the development purpose in `batch register`, then use the
+same before/after batch runner. Every comparison retains the round incumbent. Registration checks
+that both roles fit the remaining budget; each execution reserves its full run/time allowance in
+the existing journal. Search and acceptance spend from the same total, so reserve enough for the
+eventual acceptance pair as well. Failed or abandoned candidates still count toward the candidate
+cap, and spent execution allowance is never refunded. Registered development events and input
+digests may be reused by development candidates but cannot subsequently be registered as fresh
+acceptance in that registry. Existing acceptance reservations cannot become development batches.
+
+```bash
+python -m baselines.evaluation.search --help
+python -m baselines.evaluation.search --registry /private/evaluation/registry select --help
+```
+
+Search selection rereads both roles' receipts and persisted results for every completed candidate,
+then calls the existing comparator. An unfinished candidate must be explicitly abandoned with a
+reason; completed evidence cannot be discarded. The selector requires successful runs, positive
+mean development gain and the policy's stratum floor, then chooses the largest event-mean gain
+with batch identity as a deterministic tie-break. No eligible candidate means KEEP_INCUMBENT.
+This is development screening, not the sample-sized confidence test required for G2. Selection
+closes development registrations/runs for that round. Fresh acceptance must use the selected
+immutable candidate and seeds, with cutoffs after the development task resolution bound; its runs
+and later evidence replay recheck the selection. First-availability dates, prior human exposure
+and independence remain separate provenance obligations. The budget controls this registered
+offline runner, not arbitrary shell commands, earlier experiments, training or paid services.
 
 Production confirmations retain the original selected pair after development promotion. Register
 fresh batches with the production options exposed by [`batch register`](batch.py); the explicit
@@ -387,8 +420,8 @@ that the data were previously unseen by people, that event IDs are independent,
 or that source licensing and cutoff provenance are valid. These still require
 separate provenance evidence. The production confirmation mechanism does not establish actual
 acceptance until eligible fresh data and the approved judge are available. Production eligibility
-and equivalence remain unmeasured. Development-search budgets still
-need integration with candidate selection; registered acceptance execution now has round limits.
+and equivalence remain unmeasured. Registered development search and acceptance share round limits;
+historical unregistered experiments do not acquire budget evidence retroactively.
 The lifecycle does not declare the overall goal complete.
 Saved decisions produced by a different evaluator revision may fail recomputation; keep their
 original evidence instead of rewriting them to pass a new transition.
