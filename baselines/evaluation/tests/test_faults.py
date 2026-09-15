@@ -157,10 +157,7 @@ def test_suite_rejects_different_image_and_incomplete_roster(tmp_path):
         faults.load_suite(path, plan["identity"])
 
 
-def test_complete_suite_is_recomputed_and_artifact_edits_are_rejected(tmp_path):
-    from baselines.evaluation.acceptance import engineering_checks
-    from baselines.evaluation.tests.test_acceptance import reports, checks_by_name
-
+def synthetic_suite(tmp_path):
     identity = {
         "image_id": "sha256:" + "1" * 64,
         "runtime_digest": "synthetic",
@@ -184,6 +181,14 @@ def test_complete_suite_is_recomputed_and_artifact_edits_are_rejected(tmp_path):
     write_json(tmp_path / "fault-plan.json", plan)
     path = tmp_path / "report.json"
     write_json(path, {"plan": plan, "plan_digest": faults.digest(plan), "runs": rows})
+    return path, identity, plan
+
+
+def test_complete_suite_is_recomputed_and_artifact_edits_are_rejected(tmp_path):
+    from baselines.evaluation.acceptance import engineering_checks
+    from baselines.evaluation.tests.test_acceptance import reports, checks_by_name
+
+    path, identity, plan = synthetic_suite(tmp_path)
     loaded = faults.load_suite(path, identity)
     assert len(loaded["cases"]) == len(faults.SCENARIOS) * len(faults.KINDS)
     assert sum(row["recovered_entities"] for row in loaded["cases"]) > 0

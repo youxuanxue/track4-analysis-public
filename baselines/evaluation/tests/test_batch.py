@@ -238,3 +238,65 @@ def test_missing_reservation_prevents_run_and_decision(setup):
     marker.unlink()
     with pytest.raises(FileNotFoundError):
         batch.read_registration(directory)
+
+
+def test_registered_faults_are_reverified_in_both_engineering_audits(setup):
+    from baselines.evaluation.tests.test_faults import synthetic_suite
+    from baselines.evaluation.tests.test_acceptance import checks_by_name
+
+    root, manifest, versions, identity = setup
+    path, runtime, _ = synthetic_suite(root.parent / "recovery")
+    identity.update(runtime)
+    directory = batch.register(
+        root, manifest, versions, [1], faults={"before": path, "after": path}
+    )
+    record = batch.read_registration(directory)
+    for role in ("before", "after"):
+        completed_report(directory, role, record)
+    result = batch.decide(directory)
+    assert (
+        checks_by_name(result["goals"]["G1"]["checks"])["fault_recovery"]["status"]
+        == "PASS"
+    )
+    baseline = checks_by_name(result["goals"]["G2"]["checks"])["baseline_engineering"][
+        "detail"
+    ]
+    assert checks_by_name(baseline["checks"])["fault_recovery"]["status"] == "PASS"
+    assert result["decision"] == "KEEP_INCUMBENT"
+
+
+@pytest.mark.parametrize("change", ["report", "artifact", "runtime"])
+def test_registered_fault_changes_are_rejected_before_execution(setup, change):
+    from baselines.evaluation.tests.test_faults import synthetic_suite
+
+    root, manifest, versions, identity = setup
+    path, runtime, plan = synthetic_suite(root.parent / "recovery")
+    identity.update(runtime)
+    directory = batch.register(
+        root, manifest, versions, [1], faults={"before": path, "after": path}
+    )
+    if change == "report":
+        path.write_text(path.read_text() + "\n")
+    elif change == "artifact":
+        (path.parent / plan["cases"][0]["case_id"] / "exercise.json").write_text("{}")
+    else:
+        identity["runtime_digest"] = "different"
+    with pytest.raises(ValueError, match="changed since|artifact hash|version changed"):
+        batch.run(directory, "before")
+    assert not (directory / "before.started.json").exists()
+
+
+def test_fault_registration_requires_both_roles_and_matching_runtime(setup):
+    from baselines.evaluation.tests.test_faults import synthetic_suite
+
+    root, manifest, versions, identity = setup
+    path, runtime, _ = synthetic_suite(root.parent / "recovery")
+    identity.update(runtime)
+    with pytest.raises(ValueError, match="both versions"):
+        batch.register(root, manifest, versions, [1], faults={"before": path})
+    identity["image_id"] = "different"
+    with pytest.raises(ValueError, match="different candidate runtime"):
+        batch.register(
+            root, manifest, versions, [1], faults={"before": path, "after": path}
+        )
+    assert not root.exists()

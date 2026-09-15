@@ -46,32 +46,50 @@ def snapshot(spec: dict) -> dict:
     if not repo.is_dir() or not Path(spec["python"]).is_file():
         raise ValueError("version repo and Python executable must exist")
     # This executes only evaluator-owned local source from the declared checkout.
-    code = "from baselines.evaluation.__main__ import provenance; import json; print(json.dumps(provenance()))"
+    code = (
+        "from baselines.evaluation.__main__ import provenance; "
+        "from baselines.evaluation.engineering import image_identity; "
+        "import json, sys; identity = provenance(); "
+        "identity.update(image_identity(sys.argv[1]) if len(sys.argv) > 1 else {}); "
+        "print(json.dumps(identity))"
+    )
     result = subprocess.run(
-        [spec["python"], "-c", code],
+        [spec["python"], "-c", code, *([spec["image"]] if spec["image"] else [])],
         cwd=repo,
         capture_output=True,
         text=True,
         check=True,
         timeout=60,
     )
-    identity = json.loads(result.stdout)
-    if spec["image"] is not None:
-        image = subprocess.run(
-            ["docker", "image", "inspect", spec["image"]],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=30,
-        )
-        record = json.loads(image.stdout)[0]
-        if record["Architecture"] != "amd64":
-            raise ValueError("acceptance image must be linux/amd64")
-        identity["image_id"] = record["Id"]
-    return identity
+    return json.loads(result.stdout)
 
 
-def register(root: Path, manifest: Path, versions: dict, seeds: list[int]) -> Path:
+def verify_faults(record: dict) -> dict[str, Path]:
+    """Recheck the originally registered recovery artifacts, including their runtime."""
+    from .faults import load_suite
+
+    frozen = record.get("faults", {})
+    if frozen and set(frozen) != {"before", "after"}:
+        raise ValueError("register recovery evidence for both versions")
+    paths = {}
+    for role, artifact in frozen.items():
+        path = Path(artifact["path"])
+        require_external(path, public_roots())
+        if hashlib.sha256(path.read_bytes()).hexdigest() != artifact["sha256"]:
+            raise ValueError("fault report changed since registration")
+        load_suite(path, record["versions"][role]["identity"])
+        paths[role] = path
+    return paths
+
+
+def register(
+    root: Path,
+    manifest: Path,
+    versions: dict,
+    seeds: list[int],
+    *,
+    faults: dict[str, Path] | None = None,
+) -> Path:
     require_external(manifest, public_roots())
     if set(versions) != {"before", "after"}:
         raise ValueError("freeze exactly before and after versions")
@@ -137,6 +155,17 @@ def register(root: Path, manifest: Path, versions: dict, seeds: list[int]) -> Pa
         },
         "scope": "offline preregistration; does not certify unseen data, production runtime or artifact eligibility",
     }
+    if faults is not None:
+        if set(faults) != {"before", "after"}:
+            raise ValueError("register recovery evidence for both versions")
+        record["faults"] = {}
+        for role, path in faults.items():
+            require_external(path, public_roots())
+            record["faults"][role] = {
+                "path": str(path.absolute()),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+        verify_faults(record)
     batch_id = digest(record)
     with locked(root):
         events = root / "events"
@@ -164,6 +193,7 @@ def read_registration(directory: Path) -> dict:
         raise ValueError("registration was modified after freezing")
     if record["policy_digest"] != digest(load_policy()):
         raise ValueError("acceptance policy changed since registration")
+    verify_faults(record)
     events = directory.parent.parent / "events"
     for key in ("group", "input_digest"):
         for value in {row[key] for row in record["expected_runs"]}:
@@ -186,7 +216,13 @@ def validate_report(report: dict, record: dict, role: str) -> None:
                 "report inputs, truth or grouping differ from registration"
             )
     identity = record["versions"][role]["identity"]
-    for field in ("source_digest", "git_commit", "toolkit_source_digest", "image_id"):
+    for field in (
+        "source_digest",
+        "git_commit",
+        "toolkit_source_digest",
+        "image_id",
+        *(key for key in ("runtime_digest", "runtime_manifest") if key in identity),
+    ):
         if report["provenance"].get(field) != identity.get(field):
             raise ValueError(f"report {field} differs from frozen version")
     if (
@@ -301,7 +337,14 @@ def decide(directory: Path) -> dict:
                 "batch already consumed; inspect existing decision instead of re-deciding"
             )
         before, after, record = verified_reports(directory)
-        decision = audit(before, after, policy=load_policy())
+        faults = verify_faults(record)
+        decision = audit(
+            before,
+            after,
+            policy=load_policy(),
+            before_faults=faults.get("before"),
+            after_faults=faults.get("after"),
+        )
         if "input_error" not in decision:
             # Replace only proof obligations actually established by this runner.
             for goal, name, detail in (
@@ -334,6 +377,8 @@ def main(argv: list[str] | None = None) -> int:
     create.add_argument("--manifest", type=Path, required=True)
     create.add_argument("--versions", type=Path, required=True)
     create.add_argument("--seeds", nargs="+", type=int, required=True)
+    create.add_argument("--before-faults", type=Path)
+    create.add_argument("--after-faults", type=Path)
     execute = commands.add_parser("run")
     execute.add_argument("--batch", type=Path, required=True)
     execute.add_argument("--role", choices=("before", "after"), required=True)
@@ -343,12 +388,21 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "register":
             require_external(args.versions, public_roots())
+            faults = {
+                role: path
+                for role, path in (
+                    ("before", args.before_faults),
+                    ("after", args.after_faults),
+                )
+                if path is not None
+            }
             print(
                 register(
                     args.registry.resolve(),
                     args.manifest.resolve(),
                     json.loads(args.versions.read_text()),
                     args.seeds,
+                    faults=faults or None,
                 )
             )
         elif args.command == "run":

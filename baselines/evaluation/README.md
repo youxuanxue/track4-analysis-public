@@ -286,6 +286,12 @@ prediction. A versions file maps `before` and `after` to objects containing `rep
 `python` and `image` (null for a local process). The runner currently supports only
 grounded/smoke runs with no model-request budget. Consult its CLI for arguments:
 
+Registration can also freeze recovery reports for both roles. It verifies each image's
+runtime source against its declared checkout, binds the recovery report hashes, and rechecks
+the complete underlying fault artifacts before execution and decision. Replacing recovery
+evidence after seeing acceptance results is refused. A batch without registered recovery
+evidence keeps that G1 requirement unmeasured; batch decisions still do not execute promotion.
+
 ```bash
 python -m baselines.evaluation.acceptance --help
 python -m baselines.evaluation.batch --help
