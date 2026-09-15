@@ -123,7 +123,7 @@ flowchart TD
 
 ## 6. 现有工具与待补自动化
 
-本节明确实施边界：已有诊断判定器和离线批次登记器；客户端请求计数已接入诊断；完整资源/故障证据、生产确认和晋级执行器仍未完成，当前决策保持 `KEEP_INCUMBENT`。
+本节明确实施边界：已有诊断判定器、离线批次登记器、冻结容器清单及资源/故障核验；客户端请求计数已接入诊断；生产确认和晋级执行器仍未完成，当前决策保持 `KEEP_INCUMBENT`。
 
 | 能力 | 当前入口 | 覆盖范围 / 下一步 |
 | --- | --- | --- |
@@ -132,7 +132,8 @@ flowchart TD
 | 证据诊断 | [review.py](../baselines/evaluation/review.py) | 已有预测假设、引用原文和有来源的审阅标注；未审阅不得当支持 |
 | 区间实验 | [calibration.py](../baselines/evaluation/calibration.py) | 已有外置残差校准；结果可比较，但工件部署许可须单独核对 |
 | 配对提升 | [compare.py](../baselines/evaluation/compare.py) | 已有相同清单/评分器检查和事件 bootstrap；已增加领域及 target type 的事件区间；样本量和平衡权重由 acceptance 检查 |
-| 三层验收 | [acceptance.py](../baselines/evaluation/acceptance.py) 与版本化政策 | 已输出测量子项、缺证据原因和报告摘要；完整 G1/G3 证据通路待补，不将诊断当晋级 |
+| 三层验收 | [acceptance.py](../baselines/evaluation/acceptance.py) 与版本化政策 | 已核对 G1 冻结清单、容器资源及同镜像故障工件，分别审计候选与基线；G3 生产证据通路待补，不将诊断当晋级 |
+| 故障恢复 | [faults.py](../baselines/evaluation/faults.py) | 用纯合成协议工件运行同镜像真实进程，核对请求接收记录、完整输出和 fallback；不替代预测质量或生产 judge |
 | 轮次控制 | [batch.py](../baselines/evaluation/batch.py) | 已冻结版本、输入/真值摘要和 seed，拒绝重复事件或角色重跑；目前仅离线 grounded/smoke，生产与晋级待补 |
 
 判定器的最低回归要求：缺少 production judge 的 smoke 报告不能通过 G3；漏运行/漏真值不能通过 G2；重复事件或 seed 不能凑样本；不同 toolkit/judge 不可比较；均值变好但配对区间跨零不能晋级；失败单位不能删除；消耗过的验收批次不能重新标为独立；不同版本的报告不能拼成一次通过。

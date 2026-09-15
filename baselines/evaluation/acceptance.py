@@ -209,7 +209,9 @@ def request_accounting(report: dict) -> dict:
     )
 
 
-def engineering_checks(report: dict, policy: dict | None = None) -> list[dict]:
+def engineering_checks(
+    report: dict, policy: dict | None = None, faults: Path | None = None
+) -> list[dict]:
     rows = report_rows(report)
     checks = [
         check(
@@ -306,13 +308,19 @@ def engineering_checks(report: dict, policy: dict | None = None) -> list[dict]:
         rows, (policy or load_policy())["max_p95_timeout_fraction"], image
     )
     checks.append(check("resource_envelope", passed, details))
-    checks.append(
-        check(
-            "fault_recovery",
-            None,
-            "needs frozen-image cold-start and fault exercise results",
+    if faults is None:
+        checks.append(
+            check(
+                "fault_recovery",
+                None,
+                "needs frozen-image cold-start and fault exercise results",
+            )
         )
-    )
+    else:
+        from .faults import load_suite
+
+        details = load_suite(faults, report.get("provenance", {}))
+        checks.append(check("fault_recovery", True, details))
     return checks
 
 
@@ -471,13 +479,21 @@ def production_checks(report: dict) -> list[dict]:
     ]
 
 
-def audit(before: dict, after: dict, *, policy: dict) -> dict:
+def audit(
+    before: dict,
+    after: dict,
+    *,
+    policy: dict,
+    before_faults: Path | None = None,
+    after_faults: Path | None = None,
+) -> dict:
     """Report measured subchecks and outstanding prerequisites without self-certification."""
     try:
-        engineering = engineering_checks(after, policy)
+        engineering = engineering_checks(after, policy, after_faults)
+        baseline = stage(engineering_checks(before, policy, before_faults))
         quality, comparison = quality_checks(before, after, policy)
         production = production_checks(after)
-    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
         return {
             "version": 1,
             "policy_digest": digest(policy),
@@ -496,7 +512,17 @@ def audit(before: dict, after: dict, *, policy: dict) -> dict:
                 "fresh_holdout",
                 "needs preregistration and one-time consumption of an independent sealed batch",
             ),
-            ("baseline_engineering", "both frozen versions need complete G1 evidence"),
+        )
+    )
+    quality.append(
+        check(
+            "baseline_engineering",
+            True
+            if baseline["status"] == "PASS"
+            else False
+            if baseline["status"] == "FAIL"
+            else None,
+            baseline,
         )
     )
     production.extend(
@@ -593,12 +619,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--before", type=Path, required=True)
     parser.add_argument("--after", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--before-faults", type=Path)
+    parser.add_argument("--after-faults", type=Path)
     args = parser.parse_args(argv)
     try:
         for path in (args.before, args.after, args.out):
             require_external(path, public_roots())
         result = audit(
-            load_report(args.before), load_report(args.after), policy=load_policy()
+            load_report(args.before),
+            load_report(args.after),
+            policy=load_policy(),
+            before_faults=args.before_faults,
+            after_faults=args.after_faults,
         )
         with args.out.open("x", encoding="utf-8") as output:
             json.dump(result, output, indent=2, ensure_ascii=False, allow_nan=False)

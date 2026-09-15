@@ -105,7 +105,13 @@ def run_local(
 
 
 def run_container(
-    stage: Path, output: Path, *, image: str, seed: int, timeout: float
+    stage: Path,
+    output: Path,
+    *,
+    image: str,
+    seed: int,
+    timeout: float,
+    exercise: tuple[Path, str] | None = None,
 ) -> dict:
     def docker(*args, limit=60, check=True, quiet=False):
         return subprocess.run(
@@ -117,16 +123,7 @@ def run_container(
             timeout=limit,
         )
 
-    container = docker(
-        "create",
-        "--platform",
-        "linux/amd64",
-        "--network=none",
-        f"--cpus={LOCAL_CPUS}",
-        f"--memory={LOCAL_MEMORY_BYTES}",
-        "-e",
-        f"QFBENCH_SEED={seed}",
-        image,
+    command = [
         "analyze",
         "--task",
         "/input/task.json",
@@ -137,12 +134,31 @@ def run_container(
         "--diagnostics",
         "/output/diagnostics.json",
         "--mock",
+    ]
+    entrypoint = []
+    if exercise is not None:
+        entrypoint = ["--entrypoint", "python"]
+        command = ["/exercise.py", exercise[1]]
+    container = docker(
+        "create",
+        "--platform",
+        "linux/amd64",
+        "--network=none",
+        f"--cpus={LOCAL_CPUS}",
+        f"--memory={LOCAL_MEMORY_BYTES}",
+        "-e",
+        f"QFBENCH_SEED={seed}",
+        *entrypoint,
+        image,
+        *command,
     ).stdout.strip()
     try:
         # Precreate the output directory so a missing answer is scored as a failed case.
         with tempfile.TemporaryDirectory(prefix="t4-empty-output-") as empty:
             docker("cp", empty, f"{container}:/output")
         docker("cp", str(stage), f"{container}:/input")
+        if exercise is not None:
+            docker("cp", str(exercise[0]), f"{container}:/exercise.py")
         started = time.monotonic()
         try:
             docker(
@@ -176,7 +192,10 @@ def run_container(
             # Participant files cannot replace evaluator records or link to host data.
             with tempfile.TemporaryDirectory(prefix="t4-container-output-") as temp:
                 docker("cp", f"{container}:/output/.", temp)
-                for name in ("answer.json", "diagnostics.json"):
+                names = ("answer.json", "diagnostics.json")
+                if exercise is not None:
+                    names += ("exercise.json",)
+                for name in names:
                     source = Path(temp) / name
                     if source.is_symlink() or (
                         source.exists() and not source.is_file()

@@ -232,10 +232,30 @@ hashes and common model identity; it remains a development experiment outside th
 
 The [acceptance policy](acceptance-policy.json) defines internal sample, gain and
 resource-margin targets. [The audit](acceptance.py) uses the existing comparator,
-checks persisted run/answer artifacts, and reports PASS, FAIL or UNMEASURED for
+checks persisted run/answer/diagnostics artifacts, and reports PASS, FAIL or UNMEASURED for
 measured subchecks. Missing complete-roster, resource/fault or production evidence
 keeps the overall goals unmeasured; the audit does not promote a candidate.
 The report's declared total or mean is never used to replace per-run measurements.
+
+[Recovery exercises](faults.py) run the image's real analyze process against a synthetic
+loopback service with no external network. The frozen protocol covers normal startup,
+connection refusal, malformed HTTP response bodies, read timeouts and unit request-budget
+exhaustion for each target type. Fixtures are invented forecasts, never modified competition
+units or resolved outcomes. Server-observed request hashes/counts are compared with the
+client ledger; output schema, complete entity coverage, citations and fallback reasons
+are rechecked from original artifacts. This measures recovery, not predictive quality.
+
+```bash
+python -m baselines.evaluation.faults --image YOUR_LOCAL_IMAGE --out "$HOME/t4-evaluation/recovery"
+python -m baselines.evaluation.acceptance --help
+```
+
+Supply the recovery report using the audit's `--before-faults` and/or `--after-faults`
+options. Each report must bind the same immutable image and runtime source as its
+corresponding evaluation report. The audit checks baseline G1 independently. Missing
+recovery evidence remains unmeasured; changed artifacts or an incomplete protocol fail.
+An aborted engineering exercise may be fixed and rerun into a new output directory;
+this does not consume, replace or qualify as a fresh predictive acceptance batch.
 
 Use an optional `domain` on private manifest cases to enable domain-level
 comparisons. It is evaluator metadata, never an agent input. Missing domains on
