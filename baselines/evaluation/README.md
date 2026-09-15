@@ -185,6 +185,10 @@ assignments, judge identity and toolkit bytes. Failed units stay in the mean. Bo
 resample event groups, averaging correlated views and seeds inside each group. Inspect the test
 split separately; the overall result includes every supplied split. Neither a smoke score nor
 a small single-domain bootstrap interval establishes production faithfulness or generalization.
+One event group may span several domains when they share a shock. The acceptance audit counts
+that group once overall and once within each affected domain; adding domains does not multiply
+the total independent-event count. Each case must retain its group, domain and target type
+across repeated seeds.
 
 Toolkit tag `v2.4.0` still reports package version `2.3.1`; use the recorded source digest and
 Git installation identity to distinguish it. The updated tag allows model-free `models: []`

@@ -344,14 +344,18 @@ def quality_checks(
         by_case[row["case_id"]].append(row)
     domain_groups: dict[str, set] = defaultdict(set)
     kind_groups: dict[str, set] = defaultdict(set)
+    for rows in by_case.values():
+        for field in ("group", "domain", "target_type"):
+            if len({row.get(field) for row in rows}) != 1:
+                raise ValueError(
+                    f"one case cannot have inconsistent {field} across seeds"
+                )
     for group, rows in groups.items():
-        domains = {row.get("domain") for row in rows}
-        if len(domains) > 1:
-            raise ValueError("one event group cannot have inconsistent domains")
-        domain = next(iter(domains))
-        if domain:
-            domain_groups[domain].add(group)
         for row in rows:
+            # A shared shock can affect several domains. Count it once overall
+            # and once within each affected stratum, never once per domain overall.
+            if row.get("domain"):
+                domain_groups[row["domain"]].add(group)
             kind_groups[row["target_type"]].add(group)
     dimensions = {
         "event_groups": len(groups),

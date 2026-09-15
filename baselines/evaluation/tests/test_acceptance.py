@@ -108,6 +108,39 @@ def test_mixed_splits_and_missing_domain_do_not_pass_acceptance():
     assert checks_by_name(checks)["independent_sample_size"]["status"] == "UNMEASURED"
 
 
+@pytest.mark.parametrize("shared_events,expected", [(20, "UNMEASURED"), (60, "PASS")])
+def test_common_shocks_count_once_overall_and_once_per_domain(shared_events, expected):
+    before, after = reports(groups=shared_events * 3)
+    for report in (before, after):
+        for row in report["runs"]:
+            original_event = int(row["group"].split("-")[1])
+            row["group"] = f"shared-shock-{original_event // 3}"
+    checks, result = quality_checks(before, after, load_policy())
+    values = checks_by_name(checks)
+    assert values["independent_sample_size"]["status"] == expected
+    assert values["paired_quality"]["status"] == expected
+    assert values["balanced_event_weights"]["status"] == "PASS"
+    assert result["overall"]["independent_groups"] == shared_events
+    assert all(
+        s["independent_groups"] == shared_events for s in result["by_domain"].values()
+    )
+    assert all(
+        s["independent_groups"] == shared_events
+        for s in result["by_target_type"].values()
+    )
+
+
+@pytest.mark.parametrize("field", ["group", "domain", "target_type"])
+def test_case_metadata_cannot_change_between_seeds(field):
+    before, after = reports(groups=3)
+    for report in (before, after):
+        report["runs"][0][field] = (
+            "ranking" if field == "target_type" else "inconsistent"
+        )
+    with pytest.raises(ValueError, match="across seeds"):
+        quality_checks(before, after, load_policy())
+
+
 def test_aggregate_improvement_cannot_hide_a_regressed_domain():
     before, after = reports()
     for row in after["runs"]:
