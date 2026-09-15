@@ -5,7 +5,7 @@ on:
   push:
     branches: [main, "task/**", "track4/**"]
   pull_request:
-    branches: [main]
+    branches: [main, "merge/upstream-*"]
 
 jobs:
   # Runs FIRST and installs nothing but pytest, so it survives anything that can go wrong with
