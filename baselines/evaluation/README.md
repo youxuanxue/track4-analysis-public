@@ -111,7 +111,9 @@ participant runtime bytes separately from evaluator workspace bytes.
 ## Historical snapshots and evidence review
 
 The development-only [historical builder](./historical.py) reads an external event specification
-and retrieves Treasury observations from ALFRED. It requires `curl` for acquisition; cached
+and retrieves Treasury, CPI, foreign-exchange and energy observations from ALFRED.
+The supported families and series are declared in [`historical.py`](./historical.py).
+It requires `curl` for acquisition; cached
 snapshots can subsequently be rebuilt offline. Every series is requested separately, and its
 returned column must carry the exact requested vintage date. This matters because a multi-series
 request can silently return the latest vintage for some columns. Downloaded bytes, source URLs,
@@ -121,7 +123,8 @@ The specification has `version: 1` and an `events` array. Each event declares `i
 `resolution`, and `split` (train, calibration or test). The builder refuses overlapping event
 windows and split leakage before downloading. It creates classification, regression and ranking
 views of each event, with the same event group: those views are correlated, not additional
-independent samples. This is a single-domain rates benchmark, not a proxy for all hidden families.
+independent samples. The default family covers rates only; additional families do not establish
+coverage of all hidden tasks or independence between contemporaneous market shocks.
 The corpus is a deterministic extract of historical observations, not a financial forecast.
 Only prediction inputs go under each unit; future snapshots and outcomes stay outside those units.
 
@@ -140,6 +143,17 @@ components overlap, and the target views share a release event, so neither entit
 views count as independent samples. Keep this domain's development and held-out rosters
 separate and retain the same chronological split checks. The default Treasury build and
 its existing cache URLs remain unchanged.
+
+The market-return families use the latest common observation available in each requested
+vintage. Returns divide the resolution level by the original cutoff reference, so later
+revisions cannot change the starting level. Exchange-rate quotation directions remain as
+published; yen per dollar is not silently inverted. The builder refuses stale snapshots,
+insufficient recent history and resolutions with no observation after cutoff. These are
+specified-vintage targets with publication lag, not certified first-release targets.
+Private rosters carry the domain alongside the event group. Series metadata, attribution
+and reuse links are recorded with fetched snapshots; retain the source-specific license
+assessment separately before using a dataset for acceptance. Different domains sharing a
+time window may remain dependent and must not inflate independent-event counts.
 
 ```bash
 python -m baselines.evaluation.historical \
