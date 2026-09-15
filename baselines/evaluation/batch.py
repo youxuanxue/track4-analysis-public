@@ -33,10 +33,18 @@ def locked(root: Path):
 
 def write_new(path: Path, value: dict) -> None:
     payload = json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + "\n"
-    with path.open("x") as file:
+    # Publish a complete record without replacing an existing decision. A crash
+    # before publication leaves only an unreferenced temporary file.
+    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent) as file:
         file.write(payload)
         file.flush()
         os.fsync(file.fileno())
+        os.link(file.name, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
 
 
 def snapshot(spec: dict) -> dict:
@@ -328,43 +336,78 @@ def verified_reports(directory: Path) -> tuple[dict, dict, dict]:
     return reports[0], reports[1], record
 
 
-def decide(directory: Path) -> dict:
+def evaluate_registered(directory: Path) -> dict:
+    """Recompute from original registered evidence without consuming another batch."""
     from .acceptance import audit, check, stage
 
+    before, after, record = verified_reports(directory)
+    faults = verify_faults(record)
+    decision = audit(
+        before,
+        after,
+        policy=load_policy(),
+        before_faults=faults.get("before"),
+        after_faults=faults.get("after"),
+    )
+
+    def replace(goal: dict, name: str, passed: bool | None, detail: object) -> dict:
+        return stage(
+            [item for item in goal["checks"] if item["name"] != name]
+            + [check(name, passed, detail)]
+        )
+
+    def passed(goal: dict) -> bool | None:
+        return {"PASS": True, "FAIL": False, "UNMEASURED": None}[goal["status"]]
+
+    if "input_error" not in decision:
+        goals = decision["goals"]
+        detail = "reports exactly match the frozen roster and version identities"
+        goals["G1"] = replace(goals["G1"], "planned_roster", True, detail)
+        baseline = next(
+            item["detail"]
+            for item in goals["G2"]["checks"]
+            if item["name"] == "baseline_engineering"
+        )
+        baseline = replace(baseline, "planned_roster", True, detail)
+        for name, value, evidence in (
+            ("baseline_engineering", passed(baseline), baseline),
+            ("candidate_engineering", passed(goals["G1"]), goals["G1"]["status"]),
+            (
+                "fresh_holdout",
+                True,
+                "one-time registered event batch; prior human exposure remains a provenance obligation",
+            ),
+        ):
+            goals["G2"] = replace(goals["G2"], name, value, evidence)
+        goals["G3"] = replace(
+            goals["G3"],
+            "quality_acceptance",
+            passed(goals["G2"]),
+            goals["G2"]["status"],
+        )
+    decision["registration_digest"] = directory.name
+    decision["policy_digest"] = record["policy_digest"]
+    return decision
+
+
+def verified_decision(directory: Path) -> dict:
+    """A saved PASS is not authority: recheck receipts, artifacts and the policy."""
+    from .artifacts import read_json_inside
+
+    saved = read_json_inside(directory, "decision.json")
+    measured = evaluate_registered(directory)
+    if saved != measured:
+        raise ValueError("saved decision differs from the registered evidence")
+    return measured
+
+
+def decide(directory: Path) -> dict:
     with locked(directory.parent.parent):
         if (directory / "decision.json").exists():
             raise ValueError(
                 "batch already consumed; inspect existing decision instead of re-deciding"
             )
-        before, after, record = verified_reports(directory)
-        faults = verify_faults(record)
-        decision = audit(
-            before,
-            after,
-            policy=load_policy(),
-            before_faults=faults.get("before"),
-            after_faults=faults.get("after"),
-        )
-        if "input_error" not in decision:
-            # Replace only proof obligations actually established by this runner.
-            for goal, name, detail in (
-                (
-                    "G1",
-                    "planned_roster",
-                    "both reports exactly match the frozen roster and version identities",
-                ),
-                (
-                    "G2",
-                    "fresh_holdout",
-                    "one-time registered event batch; prior human exposure remains a provenance obligation",
-                ),
-            ):
-                checks = decision["goals"][goal]["checks"]
-                checks = [item for item in checks if item["name"] != name]
-                checks.append(check(name, True, detail))
-                decision["goals"][goal] = stage(checks)
-        decision["registration_digest"] = directory.name
-        decision["policy_digest"] = record["policy_digest"]
+        decision = evaluate_registered(directory)
         write_new(directory / "decision.json", decision)
     return decision
 

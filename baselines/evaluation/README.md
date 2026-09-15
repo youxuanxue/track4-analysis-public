@@ -292,6 +292,29 @@ the complete underlying fault artifacts before execution and decision. Replacing
 evidence after seeing acceptance results is refused. A batch without registered recovery
 evidence keeps that G1 requirement unmeasured; batch decisions still do not execute promotion.
 
+[The development lifecycle](lifecycle.py) applies a batch decision to the retained incumbent.
+Initialize it in the same registry with a clean frozen version, then attach a newly registered
+batch before either role starts. The attached baseline must be the current incumbent, and
+the candidate must be a different frozen version. After both runs and `batch decide`, use
+`lifecycle resolve`: it recomputes the saved decision from the original receipts, reports and
+recovery artifacts, verifies that both versions still exist unchanged, and updates the development
+incumbent only when G1 and G2 pass. Failed or unmeasured acceptance closes the batch and retains
+the incumbent. The initial version is explicitly a bootstrap baseline, not an accepted candidate.
+
+```bash
+python -m baselines.evaluation.lifecycle --help
+python -m baselines.evaluation.lifecycle --registry /private/evaluation/registry initialize --help
+python -m baselines.evaluation.lifecycle --registry /private/evaluation/registry attach --help
+```
+
+The lifecycle uses one append-only hash-linked journal, published atomically under the registry
+lock. `status` derives the current version and rollback history from that journal. `rollback`
+requires a reason and verifies the previous retained version before restoring it; if the only
+previous version was the bootstrap baseline, it remains unqualified. `abandon` closes an interrupted
+batch with a reason while preserving its event reservations and consumed-run markers. A pending
+batch must be resolved or abandoned before another selection or rollback. These commands only
+change local development state: they do not assign production qualification, deploy or submit.
+
 ```bash
 python -m baselines.evaluation.acceptance --help
 python -m baselines.evaluation.batch --help
@@ -312,7 +335,8 @@ The registry prevents accidental replay and post-hoc substitution; it is not an
 anti-tamper service against someone who controls its files. It does not establish
 that the data were previously unseen by people, that event IDs are independent,
 or that source licensing and cutoff provenance are valid. These still require
-separate provenance evidence. Cold-start/fault and resource accounting, deployment
-eligibility, production equivalence and independent production confirmations are
-not yet wired into the verdict. The current implementation always keeps the
-incumbent and never claims official ranking or internal completion.
+separate provenance evidence. Production eligibility, equivalence and independent confirmations
+remain unmeasured until their evidence paths are implemented. Candidate-count and cross-run budget
+control also remain separate work; the lifecycle does not declare the overall goal complete.
+Saved decisions produced by a different evaluator revision may fail recomputation; keep their
+original evidence instead of rewriting them to pass a new transition.
