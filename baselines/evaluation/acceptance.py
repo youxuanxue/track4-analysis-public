@@ -17,18 +17,12 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+from .artifacts import digest, read_json_inside
 from .compare import compare
 from .dataset import public_roots, require_external
+from .engineering import resource_observations, verify_plan_file, verify_run_plan
 
 POLICY_PATH = Path(__file__).with_name("acceptance-policy.json")
-
-
-def digest(value: object) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            value, sort_keys=True, allow_nan=False, separators=(",", ":")
-        ).encode()
-    ).hexdigest()
 
 
 def finite(value: object) -> bool:
@@ -215,7 +209,7 @@ def request_accounting(report: dict) -> dict:
     )
 
 
-def engineering_checks(report: dict) -> list[dict]:
+def engineering_checks(report: dict, policy: dict | None = None) -> list[dict]:
     rows = report_rows(report)
     checks = [
         check(
@@ -299,6 +293,26 @@ def engineering_checks(report: dict) -> list[dict]:
         )
     )
     checks.append(request_accounting(report))
+    if "run_plan" in report:
+        verify_run_plan(report)
+    checks.append(
+        check(
+            "planned_roster",
+            True if "run_plan" in report else None,
+            "complete case/seed roster frozen by the evaluator before prediction",
+        )
+    )
+    passed, details = resource_observations(
+        rows, (policy or load_policy())["max_p95_timeout_fraction"], image
+    )
+    checks.append(check("resource_envelope", passed, details))
+    checks.append(
+        check(
+            "fault_recovery",
+            None,
+            "needs frozen-image cold-start and fault exercise results",
+        )
+    )
     return checks
 
 
@@ -460,7 +474,7 @@ def production_checks(report: dict) -> list[dict]:
 def audit(before: dict, after: dict, *, policy: dict) -> dict:
     """Report measured subchecks and outstanding prerequisites without self-certification."""
     try:
-        engineering = engineering_checks(after)
+        engineering = engineering_checks(after, policy)
         quality, comparison = quality_checks(before, after, policy)
         production = production_checks(after)
     except (ValueError, TypeError, KeyError, AttributeError) as exc:
@@ -475,21 +489,6 @@ def audit(before: dict, after: dict, *, policy: dict) -> dict:
                 for key in ("G1", "G2", "G3")
             },
         }
-    # These are explicit uncollected proof obligations, not user-set pass flags.
-    engineering.extend(
-        check(name, None, reason)
-        for name, reason in (
-            ("planned_roster", "needs a preregistered complete case/seed roster"),
-            (
-                "request_and_resource_ledger",
-                "needs evaluator-bound request attempts, caps and per-run resource evidence",
-            ),
-            (
-                "fault_recovery",
-                "needs frozen-image cold-start and fault exercise results",
-            ),
-        )
-    )
     quality.extend(
         check(name, None, reason)
         for name, reason in (
@@ -557,6 +556,7 @@ def load_report(path: Path) -> dict:
     """Bind diagnostics to persisted per-run results and answers, detecting edited reports."""
     report = json.loads(path.read_text())
     rows = report_rows(report)
+    verify_plan_file(path, report)
     for row in rows:
         folder = path.parent / row["case_id"] / f"seed-{row['seed']}"
         result = folder / "result.json"
@@ -574,6 +574,17 @@ def load_report(path: Path) -> dict:
                 raise ValueError("answer must remain inside its report directory")
             if hashlib.sha256(answer.read_bytes()).hexdigest() != row["answer_sha256"]:
                 raise ValueError("answer bytes differ from recorded digest")
+        if "diagnostics" in row:
+            relative = f"{row['case_id']}/seed-{row['seed']}/diagnostics.json"
+            if read_json_inside(path.parent, relative) != row["diagnostics"]:
+                raise ValueError(
+                    "diagnostics differ from persisted participant artifact"
+                )
+            if "run_plan" in report or row.get("diagnostics_sha256"):
+                if hashlib.sha256(
+                    (path.parent / relative).read_bytes()
+                ).hexdigest() != row.get("diagnostics_sha256"):
+                    raise ValueError("diagnostics bytes differ from recorded digest")
     return report
 
 

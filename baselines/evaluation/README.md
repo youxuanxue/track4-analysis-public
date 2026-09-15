@@ -27,14 +27,23 @@ used for predictions. In grounded mode it is a separate retrieval diagnostic. It
 `used_for_prediction` field distinguishes these cases; it does not assert semantic support.
 
 Use `--image` to run an already-built baseline image through Docker with no network.
-The tool resolves its immutable image ID before running; build the image from the same
-workspace to get the optional diagnostics sidecar. Only declared task and corpus files
+The tool resolves its immutable image ID and compares its runtime source files with the
+evaluator checkout before running; rebuild images whose runtime differs. Only declared task and corpus files
 are copied into the container. No host data directories or Docker socket are mounted.
 Returned artifacts are collected separately; only regular answer and diagnostics files
 are imported. Container runtime faults abort evaluation instead of becoming scored failures.
 This tests Docker execution, not the organizer's gVisor environment or model service.
-The offline container uses conservative local CPU/memory caps, recorded with each run;
-they do not claim to reproduce the official compute grant.
+The offline container uses conservative local CPU/memory caps. The runner records the
+actual Docker configuration, out-of-memory state and process wall time, then checks them
+against each unit's frozen card contract. These observations do not establish hardware
+equivalence with the official environment.
+
+Before prediction, the runner persists a complete input/seed/resource roster in
+`run-plan.json`. Report loading verifies its digest and complete coverage, as well as
+persisted result, answer and diagnostics bindings. Input changes during execution abort
+the report. Cards without an explicit agent timeout retain unmeasured resource evidence;
+a caller's timeout is not a substitute for the official contract. These local integrity
+checks detect drift, not deliberate rewriting of all artifacts by their owner.
 
 Without `--image`, the predictor runs in a separate local process with staged inputs.
 This prevents accidental truth-path plumbing, but is **not a filesystem security sandbox**.
