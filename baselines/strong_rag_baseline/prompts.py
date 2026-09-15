@@ -11,7 +11,6 @@ import json
 
 from .indexer import Chunk
 from .evidence import evidence_references
-from .financials import eps_table_context
 from .quantities import TargetSpec
 from .tables import summary_columns, table_summaries
 
@@ -133,15 +132,6 @@ def build_user_prompt(task: dict, entity: dict, retrieved: list[Chunk]) -> str:
             f"[{evidence_id}] doc_id={chunk.doc_id} (doc_date={chunk.doc_date})"
         )
         lines.append(f'"""{chunk.text}"""')
-        financial = eps_table_context(chunk) if "eps" in spec.name.split() else []
-        if financial:
-            lines.append(
-                "COMPUTED PER-SHARE ROW CONTEXT (same evidence ID; source values in "
-                "left-to-right order; accounting parentheses mean negative; null period "
-                "means unknown, never the requested target period; differences are "
-                "not growth rates; these are not future forecasts or prediction intervals): "
-                + json.dumps(financial, ensure_ascii=False, allow_nan=False)
-            )
         summaries = table_summaries(
             chunk, spec.cutoff, summary_columns(task, entity, chunk)
         )
