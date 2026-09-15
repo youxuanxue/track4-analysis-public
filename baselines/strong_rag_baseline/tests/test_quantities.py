@@ -181,6 +181,78 @@ def test_negative_diluted_eps_keeps_accounting_parentheses() -> None:
     assert result["point_forecast"] == pytest.approx(-1.23)
 
 
+@pytest.mark.parametrize(
+    "text,value",
+    [
+        (
+            "Net income for basic and diluted EPS $ 900 $ 600 Shares for diluted EPS 300 310 Diluted EPS $ 3.00 $ 2.00",
+            3.0,
+        ),
+        (
+            "Earnings (loss) per share: Basic $ ( .12 ) $ .45 Diluted $ ( .13 ) $ .44 Shares used in calculation of earnings per share: Basic 100 110 Diluted 105 115",
+            -0.13,
+        ),
+        ("Diluted earnings per common share .72 .81 1.40 1.60", 0.72),
+        ("Diluted EPS was 3", 3.0),
+        ("Diluted EPS $ 3 $ 2", 3.0),
+        ("Earnings per share of common stock—assuming dilution $ 2.17 $ 1.65", 2.17),
+        ("Earnings (loss) per common share - diluted $ (0.23) $ 1.42", -0.23),
+        (
+            "Net income was $8 billion, or $1.17 and $2.23 per diluted share, for the three and six months ended June",
+            1.17,
+        ),
+    ],
+)
+def test_eps_reads_per_share_field_despite_nearby_financial_quantities(text, value):
+    result = predict("diluted_eps", "Widget A reported: " + text)
+    assert result["point_forecast"] == pytest.approx(value)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Net income for basic and diluted EPS $ 900 $ 600",
+        "Weighted-average shares for diluted EPS 300 310",
+        "Shares used in calculation of earnings per share: Basic 300 310 Diluted 305 315",
+        "Diluted earnings per share (3) Income from continuing operations $ 4.20 $ 3.10",
+        "Contents Basic and Diluted Earnings Per Common Share 74 66 Fair Value Measurements 75",
+    ],
+)
+def test_eps_does_not_convert_numerator_denominator_or_footnote_to_forecast(text):
+    result = predict("diluted_eps", "Widget A reported: " + text)
+    assert result["point_forecast"] == 0
+    assert "fallback" in result["rationale"]
+
+
+def test_eps_chunk_boundary_keeps_numerator_context_for_rejection():
+    prefix = "Widget A " + "financial data " * 36
+    numerator = "Net income allocated to common shareholders for "
+    prefix += " " * (600 - len(prefix) - len(numerator)) + numerator
+    result = predict("diluted_eps", prefix + "diluted EPS $ 900 $ 600")
+    assert result["point_forecast"] == 0
+    assert "fallback" in result["rationale"]
+
+
+def test_eps_growth_uses_declared_reference_not_unrelated_compared_amount():
+    result = predict(
+        "eps_yoy_growth_pct",
+        "Widget A net income was $9 billion and diluted EPS of $2.40, compared with $12 billion of net income and diluted EPS of $2.10 a year ago.",
+        entity={"prior_year_q_eps": 2.0},
+    )
+    assert result["point_forecast"] == pytest.approx(20)
+
+
+@pytest.mark.parametrize("reference", [None, 0, -2])
+def test_eps_growth_without_a_positive_declared_reference_stays_unsupported(reference):
+    result = predict(
+        "eps_yoy_growth_pct",
+        "Widget A diluted EPS was $2.40 compared with $2.10.",
+        entity={"prior_year_q_eps": reference},
+    )
+    assert result["point_forecast"] == 0
+    assert "fallback" in result["rationale"]
+
+
 def test_zero_prior_does_not_invent_an_infinite_growth_rate() -> None:
     result = predict(
         "revenue_growth_pct",
