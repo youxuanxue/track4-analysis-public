@@ -97,7 +97,17 @@ def register(
     seeds: list[int],
     *,
     faults: dict[str, Path] | None = None,
+    profile: str = "smoke",
+    judge_spec: Path | None = None,
 ) -> Path:
+    from .production import freeze_judge
+
+    if profile not in ("smoke", "production"):
+        raise ValueError("profile must be smoke or production")
+    if (profile == "production") != (judge_spec is not None):
+        raise ValueError("only production registration requires an explicit judge spec")
+    # Refuse missing or changed configuration before reserving any fresh events.
+    judge = freeze_judge(judge_spec) if judge_spec is not None else None
     require_external(manifest, public_roots())
     if set(versions) != {"before", "after"}:
         raise ValueError("freeze exactly before and after versions")
@@ -155,7 +165,7 @@ def register(
         "seeds": seeds,
         "expected_runs": expected,
         "mode": "grounded",
-        "profile": "smoke",
+        "profile": profile,
         "budget": {
             "model_request_attempts": 0,
             "timeout_s": 480,
@@ -163,6 +173,8 @@ def register(
         },
         "scope": "offline preregistration; does not certify unseen data, production runtime or artifact eligibility",
     }
+    if judge is not None:
+        record["production_judge"] = judge
     if faults is not None:
         if set(faults) != {"before", "after"}:
             raise ValueError("register recovery evidence for both versions")
@@ -195,12 +207,15 @@ def register(
 
 
 def read_registration(directory: Path) -> dict:
+    from .production import verify_judge
+
     require_external(directory, public_roots())
     record = json.loads((directory / "registration.json").read_text())
     if digest(record) != directory.name:
         raise ValueError("registration was modified after freezing")
     if record["policy_digest"] != digest(load_policy()):
         raise ValueError("acceptance policy changed since registration")
+    verify_judge(record)
     verify_faults(record)
     events = directory.parent.parent / "events"
     for key in ("group", "input_digest"):
@@ -214,6 +229,8 @@ def read_registration(directory: Path) -> dict:
 
 
 def validate_report(report: dict, record: dict, role: str) -> None:
+    from .production import validate_judge_report
+
     actual = {(r["case_id"], r["seed"]): r for r in report["runs"]}
     expected = {(r["case_id"], r["seed"]): r for r in record["expected_runs"]}
     if len(actual) != len(report["runs"]) or set(actual) != set(expected):
@@ -238,6 +255,7 @@ def validate_report(report: dict, record: dict, role: str) -> None:
         or report.get("profile") != record["profile"]
     ):
         raise ValueError("report execution mode differs from registration")
+    validate_judge_report(report, record)
 
 
 def execution_budget(record: dict) -> dict:
@@ -255,6 +273,8 @@ def execution_budget(record: dict) -> dict:
 
 
 def run(directory: Path, role: str) -> Path:
+    from .production import evaluation_environment
+
     if role not in {"before", "after"}:
         raise ValueError("role must be before or after")
     root = directory.parent.parent
@@ -262,6 +282,7 @@ def run(directory: Path, role: str) -> Path:
         if (directory / f"{role}.started.json").exists():
             raise FileExistsError("run already started; do not retry")
         record = read_registration(directory)
+        environment = evaluation_environment(record)
         frozen = record["versions"][role]
         current = snapshot(frozen["spec"])
         if current != frozen["identity"]:
@@ -273,7 +294,12 @@ def run(directory: Path, role: str) -> Path:
         ):
             raise ValueError("manifest changed since registration")
         reservation = None
-        if (root / "lifecycle").exists():
+        confirmation = None
+        if (directory / "confirmation.json").exists():
+            from .confirmations import reserve_run
+
+            confirmation = reserve_run(directory, role)
+        elif (root / "lifecycle").exists():
             from .lifecycle import reserve_run
 
             reservation = reserve_run(root, directory, role, record)
@@ -281,7 +307,11 @@ def run(directory: Path, role: str) -> Path:
         # partially observed acceptance run under another seed or the same batch.
         write_new(
             directory / f"{role}.started.json",
-            {"registration_digest": directory.name, "round_reservation": reservation},
+            {
+                "registration_digest": directory.name,
+                "round_reservation": reservation,
+                **({"confirmation_reservation": confirmation} if confirmation else {}),
+            },
         )
     spec = frozen["spec"]
     out = directory / role
@@ -309,6 +339,7 @@ def run(directory: Path, role: str) -> Path:
         completed = subprocess.run(
             argv,
             cwd=spec["repo"],
+            env=environment,
             stdout=output,
             stderr=subprocess.STDOUT,
             timeout=execution_budget(record)["timeout_s"],
@@ -342,7 +373,11 @@ def verified_reports(directory: Path) -> tuple[dict, dict, dict]:
     for role in ("before", "after"):
         started = json.loads((directory / f"{role}.started.json").read_text())
         receipt = json.loads((directory / f"{role}.receipt.json").read_text())
-        if (directory.parent.parent / "lifecycle").exists():
+        if (directory / "confirmation.json").exists():
+            from .confirmations import verify_reservation
+
+            verify_reservation(directory, role, started)
+        elif (directory.parent.parent / "lifecycle").exists():
             from .lifecycle import verify_reservation
 
             verify_reservation(
@@ -450,6 +485,8 @@ def main(argv: list[str] | None = None) -> int:
     create.add_argument("--seeds", nargs="+", type=int, required=True)
     create.add_argument("--before-faults", type=Path)
     create.add_argument("--after-faults", type=Path)
+    create.add_argument("--profile", choices=("smoke", "production"), default="smoke")
+    create.add_argument("--judge-spec", type=Path)
     execute = commands.add_parser("run")
     execute.add_argument("--batch", type=Path, required=True)
     execute.add_argument("--role", choices=("before", "after"), required=True)
@@ -474,6 +511,8 @@ def main(argv: list[str] | None = None) -> int:
                     json.loads(args.versions.read_text()),
                     args.seeds,
                     faults=faults or None,
+                    profile=args.profile,
+                    judge_spec=args.judge_spec,
                 )
             )
         elif args.command == "run":

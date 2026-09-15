@@ -280,6 +280,10 @@ def attach(root: Path, directory: Path) -> dict:
         if current is None:
             raise ValueError("start a budgeted round before selecting a candidate")
         record = batch.read_registration(directory)
+        if record["profile"] != "smoke" or (directory / "confirmation.json").exists():
+            raise ValueError(
+                "development selection requires smoke; seal production confirmations separately"
+            )
         if current["policy_digest"] != record["policy_digest"]:
             raise ValueError("policy changed since the round was frozen")
         if any(

@@ -330,10 +330,40 @@ receipts. The subprocess uses the same duration calculated by `execution_budget`
 
 A candidate cannot be retried or replaced in the same round. `close-round` records the reason and retains the
 spent budget history; it cannot discard a pending batch. Starting another round requires that the
-previous one be closed. The supported runner remains offline grounded/smoke with no paid-call
+previous one be closed. Development rounds run offline grounded/smoke with no paid-call
 budget. The budget covers registered acceptance execution, not arbitrary shell commands or earlier
 development searches. Budget files no longer accept a candidate-count override. Standalone diagnostic registries without a lifecycle remain available, but
 their already-started runs cannot be attached later as budgeted acceptance evidence.
+
+Production confirmations retain the original selected pair after development promotion. Register
+fresh batches with the production options exposed by [`batch register`](batch.py); the explicit
+judge specification and its already-cached model artifacts must live outside every public worktree.
+[`production.py`](production.py) validates the official specification, binds its bytes and cache
+digest, pins the evaluator subprocess environment to that configuration with offline loading,
+and checks every reported judge identity. It does not download a model, permit paid inference,
+or establish organizer approval. Smoke registration remains the default.
+
+Before either confirmation runs, use [`confirmations`](confirmations.py) to seal the selected
+batch and both confirmation registrations with an external combined execution budget. Its help
+defines the sealing and audit arguments; the budget uses the same run/time limit fields as a
+development round. Sealing rechecks the selection's G1/G2 evidence, the original versions and seeds,
+the policy, identical production judges, and disjoint event/input reservations across all batches.
+Both confirmations must be sealed together; a third or replacement batch cannot be substituted.
+In a lifecycle registry, the selected candidate must already be the G2 incumbent with no pending
+development batch. Production confirmations use their own sealed budget rather than a new
+development selection against that incumbent.
+
+```bash
+python -m baselines.evaluation.confirmations --help
+```
+
+Run each role through the existing batch runner and then decide each batch. The confirmation
+audit rechecks original reports and receipts, both sides' production faithfulness, and each batch's
+G1/G2 result separately. A failed batch cannot disappear into a pooled average. A started role is
+consumed even if it crashes; partial sealing or missing evidence refuses execution or audit.
+The audit retains unmeasured organizer runtime equivalence and artifact eligibility and cannot
+declare a production candidate. These external evidence contracts remain to be implemented when
+the organizer publishes their requirements.
 
 ```bash
 python -m baselines.evaluation.acceptance --help
@@ -355,8 +385,9 @@ The registry prevents accidental replay and post-hoc substitution; it is not an
 anti-tamper service against someone who controls its files. It does not establish
 that the data were previously unseen by people, that event IDs are independent,
 or that source licensing and cutoff provenance are valid. These still require
-separate provenance evidence. Production eligibility, equivalence and independent confirmations
-remain unmeasured until their evidence paths are implemented. Development-search budgets still
+separate provenance evidence. The production confirmation mechanism does not establish actual
+acceptance until eligible fresh data and the approved judge are available. Production eligibility
+and equivalence remain unmeasured. Development-search budgets still
 need integration with candidate selection; registered acceptance execution now has round limits.
 The lifecycle does not declare the overall goal complete.
 Saved decisions produced by a different evaluator revision may fail recomputation; keep their
