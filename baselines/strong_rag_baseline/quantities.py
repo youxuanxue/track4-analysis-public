@@ -180,7 +180,7 @@ class TargetSpec:
                 half = max(1.0, abs(point) * 0.10)
                 lo, hi = point - half, point + half
         elif self.mode == "change_bps":
-            half = 0.05 if abs(point) < 1e-6 else max(25.0, abs(point) * 0.35)
+            half = max(25.0, abs(point) * 0.35)
             lo, hi = point - half, point + half
         elif self.mode == "ratio":
             half = max(0.20, abs(point) * 0.08)

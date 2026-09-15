@@ -86,6 +86,43 @@ def test_declared_yield_projection_converts_percent_to_bps() -> None:
     assert result["point_forecast"] == pytest.approx(25.0)
 
 
+def test_zero_change_fallback_does_not_claim_more_precision_than_nearby_forecast():
+    fallback = predict(
+        "yield_change_bps_intermeeting",
+        "Widget A yield ended at 3.59 percent; no future yield estimate is available.",
+        entity={"start_yield_pct": 3.59},
+    )
+    nearby = predict(
+        "yield_change_bps_intermeeting",
+        "Widget A projected yield is 3.59001 percent.",
+        entity={"start_yield_pct": 3.59},
+    )
+    assert fallback["point_forecast"] == 0
+    assert 0 < nearby["point_forecast"] < 0.01
+    widths = [p["interval"]["hi"] - p["interval"]["lo"] for p in (fallback, nearby)]
+    assert widths[0] == pytest.approx(widths[1])
+    assert "fallback" in fallback["rationale"]
+
+
+@pytest.mark.parametrize("kind", ["regression", "ranking"])
+def test_zero_change_interval_preserves_declared_domain_and_point(kind):
+    spec = TargetSpec.from_task(
+        {
+            "target": {
+                "name": "yield_change_bps",
+                "type": kind,
+                "minimum": -12,
+                "maximum": 17,
+            }
+        }
+    )
+    lo, hi = spec.interval(0)
+    spec.validate_prediction(
+        {"point_forecast": 0, "interval": {"lo": lo, "hi": hi, "level": spec.level}}
+    )
+    assert -12 <= lo < 0 < hi <= 17
+
+
 def test_yield_projection_for_another_horizon_is_not_reused() -> None:
     result = predict(
         "yield_change_bps_intermeeting",
