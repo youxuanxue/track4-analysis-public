@@ -13,8 +13,8 @@ import sys
 from pathlib import Path
 
 from . import batch
-from .acceptance import digest, load_policy
-from .artifacts import read_json_inside
+from .acceptance import load_policy
+from .artifacts import digest, read_json_inside
 from .dataset import public_roots, require_external
 
 
@@ -217,11 +217,7 @@ def start_round(
         development = freeze(development_manifest, seeds)
     if not hypothesis.strip():
         raise ValueError("record a falsifiable round hypothesis")
-    if set(budget) != {"max_runs", "max_reserved_seconds"} or any(
-        not isinstance(value, int) or isinstance(value, bool) or value < 1
-        for value in budget.values()
-    ):
-        raise ValueError("round budget requires positive integer run and time limits")
+    batch.validate_budget(budget)
     with batch.locked(root):
         state, events = _read(root)
         if not state:

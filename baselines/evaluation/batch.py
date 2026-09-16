@@ -18,7 +18,8 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-from .acceptance import digest, load_policy, load_report
+from .acceptance import load_policy, load_report
+from .artifacts import digest
 from .dataset import load_cases, public_roots, require_external, stage_inputs
 
 
@@ -292,6 +293,16 @@ def validate_report(report: dict, record: dict, role: str) -> None:
     ):
         raise ValueError("report execution mode differs from registration")
     validate_judge_report(report, record)
+
+
+def validate_budget(budget: dict) -> None:
+    if set(budget) != {"max_runs", "max_reserved_seconds"} or any(
+        not isinstance(value, int) or isinstance(value, bool) or value < 1
+        for value in budget.values()
+    ):
+        raise ValueError(
+            "execution budget requires positive integer run and time limits"
+        )
 
 
 def execution_budget(record: dict) -> dict:

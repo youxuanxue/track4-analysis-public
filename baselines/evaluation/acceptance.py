@@ -1,9 +1,9 @@
 """Internal acceptance audit; absent measurements never become promotion evidence.
 
-Consumes evaluator reports, not participant claims of success. The audit currently
-measures report integrity, engineering diagnostics and paired quality. Lifecycle,
-resource and production-equivalence evidence remain explicit prerequisites until
-collected by the corresponding evaluator paths. No command promotes a model.
+Consumes evaluator reports, not participant claims of success. Measures report
+integrity, engineering diagnostics and paired quality without changing lifecycle
+state. Registered G2 promotion belongs to the lifecycle; production qualification
+still requires external evidence.
 """
 
 from __future__ import annotations

@@ -17,7 +17,7 @@ from .artifacts import digest, read_json_inside
 from .dataset import public_roots, require_external
 
 
-def _pair(selection: Path, confirmations: list[Path]) -> list[dict]:
+def _batch_paths(selection: Path, confirmations: list[Path]) -> list[Path]:
     paths = [selection, *confirmations]
     if len(confirmations) != load_policy()["confirmation_batches"]:
         raise ValueError("the policy requires exactly two confirmation batches")
@@ -25,6 +25,11 @@ def _pair(selection: Path, confirmations: list[Path]) -> list[dict]:
         raise ValueError("selection and confirmations must be distinct batches")
     if len({p.resolve().parent for p in paths}) != 1:
         raise ValueError("all batches must share the same event-reservation registry")
+    return paths
+
+
+def _pair(selection: Path, confirmations: list[Path]) -> list[dict]:
+    paths = _batch_paths(selection, confirmations)
     if (selection / "confirmation.json").exists():
         raise ValueError("a confirmation cannot become another selection")
     records = [batch.read_registration(path) for path in paths]
@@ -77,12 +82,7 @@ def _incumbent(selection: Path, record: dict) -> None:
 
 def seal(selection: Path, confirmations: list[Path], budget: dict) -> dict:
     """Freeze both batches and their combined local execution limit before either runs."""
-    if set(budget) != {"max_runs", "max_reserved_seconds"} or any(
-        not isinstance(v, int) or isinstance(v, bool) or v < 1 for v in budget.values()
-    ):
-        raise ValueError(
-            "confirmation budget requires positive integer run and time limits"
-        )
+    batch.validate_budget(budget)
     with batch.locked(selection.parent.parent):
         records = _pair(selection, confirmations)
         _incumbent(selection, records[0])
@@ -186,13 +186,7 @@ def verify_reservation(directory: Path, role: str, started: dict) -> None:
 
 def audit_confirmations(selection: Path, confirmations: list[Path]) -> dict:
     policy = load_policy()
-    paths = [selection, *confirmations]
-    if len(confirmations) != policy["confirmation_batches"]:
-        raise ValueError("the policy requires exactly two confirmation batches")
-    if len({path.resolve() for path in paths}) != len(paths):
-        raise ValueError("selection and confirmations must be distinct batches")
-    if len({path.resolve().parent for path in paths}) != 1:
-        raise ValueError("all batches must share the same event-reservation registry")
+    paths = _batch_paths(selection, confirmations)
     plan, bound_selection, _ = verify_plan(confirmations[0])
     if bound_selection.resolve() != selection.resolve() or set(
         plan["confirmations"]

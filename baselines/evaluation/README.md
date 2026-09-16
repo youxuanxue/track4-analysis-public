@@ -248,180 +248,111 @@ hashes and common model identity; it remains a development experiment outside th
 
 ## Internal acceptance and sealed batches
 
-The [acceptance policy](acceptance-policy.json) defines internal sample, gain and
-resource-margin targets. [The audit](acceptance.py) uses the existing comparator,
-checks persisted run/answer/diagnostics artifacts, and reports PASS, FAIL or UNMEASURED for
-measured subchecks. Missing complete-roster, resource/fault or production evidence
-keeps the overall goals unmeasured; the audit does not promote a candidate.
-The report's declared total or mean is never used to replace per-run measurements.
+The [championship plan](../../docs/CHAMPIONSHIP-PLAN.md) defines G1/G2/G3 and the
+[acceptance policy](acceptance-policy.json) owns their numerical thresholds.
+[`acceptance.py`](acceptance.py) checks persisted evidence using the existing scorer and
+comparator; it reports PASS, FAIL or UNMEASURED without changing the incumbent.
+Missing measurements never become passes, and declared report totals cannot replace per-run evidence.
 
-[Recovery exercises](faults.py) run the image's real analyze process against a synthetic
-loopback service with no external network. The frozen protocol covers normal startup,
-connection refusal, malformed HTTP response bodies, read timeouts and unit request-budget
-exhaustion for each target type. Fixtures are invented forecasts, never modified competition
-units or resolved outcomes. Server-observed request hashes/counts are compared with the
-client ledger; output schema, complete entity coverage, citations and fallback reasons
-are rechecked from original artifacts. This measures recovery, not predictive quality.
+| Entry point | Responsibility |
+| --- | --- |
+| [faults](faults.py) | Exercise the real image with synthetic HTTP faults; verify recovery artifacts |
+| [batch](batch.py) | Freeze identities and event reservations, run each role once, recheck receipts and decide |
+| [lifecycle](lifecycle.py) | Own the development round budget, incumbent, promotion and rollback journal |
+| [search](search.py) | Compare registered development candidates and select one for fresh acceptance |
+| [confirmations](confirmations.py) | Seal and audit production batches against the original G2 pair |
+| [production](production.py) | Bind an explicit official-format judge specification and local cache; verify drift |
 
-```bash
-python -m baselines.evaluation.faults --image YOUR_LOCAL_IMAGE --out "$HOME/t4-evaluation/recovery"
-python -m baselines.evaluation.acceptance --help
-```
+Consult each module's `--help` for arguments. Registries, version declarations, manifests and
+outputs follow the [private-data rules](#private-development-data) above. These tools do not
+certify organizer approval, source licensing, first availability, prior human exposure or event
+independence. Those facts require separate provenance evidence.
 
-Supply the recovery report using the audit's `--before-faults` and/or `--after-faults`
-options. Each report must bind the same immutable image and runtime source as its
-corresponding evaluation report. The audit checks baseline G1 independently. Missing
-recovery evidence remains unmeasured; changed artifacts or an incomplete protocol fail.
-An aborted engineering exercise may be fixed and rerun into a new output directory;
-this does not consume, replace or qualify as a fresh predictive acceptance batch.
+### Shared batch rules
 
-Use an optional `domain` on private manifest cases to enable domain-level
-comparisons. It is evaluator metadata, never an agent input. Missing domains on
-older reports do not invent cross-domain generalization. Acceptance uses only test
-reports, balanced event weights and independent event counts, not entity counts.
+Registration freezes the policy, before/after source and toolkit identities, input/truth digests,
+seeds and expected roster. The version-file shape is validated by `snapshot` in [batch.py](batch.py).
+An optional manifest `domain` supports stratified comparisons; acceptance requires it, and it
+never becomes an agent input. Both roles must retain the same toolkit and evaluation profile.
+The registered runner uses offline grounded prediction: smoke is the default, while production
+scoring additionally requires the explicit judge configuration described below.
 
-[Batch registration](batch.py) freezes a test-only acceptance manifest, policy, before/after
-source and toolkit identities, input and truth digests, and seeds before invoking
-prediction. A versions file maps `before` and `after` to objects containing `repo`,
-`python` and `image` (null for a local process). The runner currently supports only
-grounded/smoke runs with no model-request budget. Consult its CLI for arguments:
+Event groups and input digests are reserved across renamed cases and changed seeds. Development
+candidates may reuse development reservations, but those reservations cannot become fresh
+acceptance, and acceptance reservations cannot become development data. Starting a role consumes
+it even after a crash. Complete runs, including participant failures, receive a digest-bound
+receipt; incomplete runs cannot produce a partial verdict. `batch decide` rechecks both receipts
+and writes an exclusive decision, refusing changes to frozen identities or evidence.
 
-Registration can also freeze recovery reports for both roles. It verifies each image's
-runtime source against its declared checkout, binds the recovery report hashes, and rechecks
-the complete underlying fault artifacts before execution and decision. Replacing recovery
-evidence after seeing acceptance results is refused. A batch without registered recovery
-evidence keeps that G1 requirement unmeasured; batch decisions still do not execute promotion.
+Recovery evidence can be frozen for both roles at registration. The [fault runner](faults.py)
+uses the real analyze process with invented inputs and an isolated loopback HTTP service.
+It compares server-observed requests with the client ledger and checks complete outputs,
+citations, fallback behavior and resource observations. Each recovery report must match its
+role's immutable image and runtime source; missing evidence remains unmeasured and drift fails.
+An engineering exercise can be rerun after repair in a new directory because it consumes no real
+acceptance events. Recovery does not measure forecasting quality or production faithfulness.
 
-[The development lifecycle](lifecycle.py) applies a batch decision to the retained incumbent.
-Initialize it in the same registry with a clean frozen version, then attach a newly registered
-batch before either role starts, after opening a budgeted round with `start-round`.
-The attached baseline must be the current incumbent, and
-the candidate must be a different frozen version. After both runs and `batch decide`, use
-`lifecycle resolve`: it recomputes the saved decision from the original receipts, reports and
-recovery artifacts, verifies that both versions still exist unchanged, and updates the development
-incumbent only when G1 and G2 pass. Failed or unmeasured acceptance closes the batch and retains
-the incumbent. The initial version is explicitly a bootstrap baseline, not an accepted candidate.
+The registry is an evaluator-owned audit trail, not protection against an owner rewriting all
+its files. Saved decisions from another evaluator revision may fail recomputation; retain the
+original evidence rather than rewriting it to force a transition.
 
-```bash
-python -m baselines.evaluation.lifecycle --help
-python -m baselines.evaluation.lifecycle --registry /private/evaluation/registry initialize --help
-python -m baselines.evaluation.lifecycle --registry /private/evaluation/registry start-round --help
-python -m baselines.evaluation.lifecycle --registry /private/evaluation/registry attach --help
-```
+### Development selection and fresh acceptance
 
-The lifecycle uses one append-only hash-linked journal, published atomically under the registry
-lock. `status` derives the current version and rollback history from that journal. `rollback`
-requires a reason and verifies the previous retained version before restoring it; if the only
-previous version was the bootstrap baseline, it remains unqualified. `abandon` closes an interrupted
-batch with a reason while preserving its event reservations and consumed-run markers. A pending
-batch must be resolved or abandoned before another selection or rollback. These commands only
-change local development state: they do not assign production qualification, deploy or submit.
+1. Initialize the lifecycle with a clean frozen bootstrap version. Open a round with a hypothesis
+   and an external budget. `validate_budget` in [batch.py](batch.py) defines the shared run/time
+   limits. The journal records every execution reservation before work; errors and crashes do
+   not refund it. The subprocess limit includes the report/shutdown allowance in `execution_budget`.
+2. To measure development candidates within that budget, supply the development manifest and
+   seeds at `lifecycle start-round`. This freezes its calibration-split roster, input/truth hashes,
+   resolution bound and policy candidate cap. Use a dedicated selection manifest: the existing
+   split name does not authorize mixing it with fitting data. Omitting these arguments supports
+   acceptance of an already selected pair, without certifying its earlier search budget.
+3. Register each candidate with the development purpose, then run both roles through `batch run`.
+   Every candidate retains the round incumbent. Each pair must fit the remaining budget; leave
+   enough for eventual acceptance. Failed or abandoned candidates count toward the cap.
+4. Run `search select`. It rechecks receipts and persisted results for every completed candidate;
+   unfinished candidates require explicit abandonment with a reason. Completed evidence cannot
+   be discarded. Successful runs, positive event-mean gain and the policy's stratum floor are
+   required; largest gain wins, with batch identity breaking ties. No eligible candidate means
+   KEEP_INCUMBENT. This screening does not establish G2 and closes further development work
+   in that round.
+5. Register a fresh test-only batch and `lifecycle attach` it before either role starts. It must
+   retain the current incumbent and a different clean candidate. In a search round it must match
+   the selected version and seeds, with cutoffs after the development resolution bound. Execution
+   and later replay recheck the selection evidence. Only one candidate may enter acceptance per
+   round, even after abandonment or with spare budget.
+6. Run both roles, then `batch decide` and `lifecycle resolve`. Resolve recomputes the decision
+   from original artifacts and verifies the versions remain unchanged. Only G1/G2 PASS updates
+   the development incumbent and retains the old version for rollback; failure or missing evidence
+   closes the batch and keeps the incumbent.
 
-Each round freezes one hypothesis, the incumbent, the acceptance policy and an external budget
-file. [`start_round`](lifecycle.py) defines its run and reserved-time limits. Exactly one selected
-candidate may enter acceptance in a round, even when spare execution budget remains or its batch
-was abandoned. The development-candidate cap in the [acceptance policy](acceptance-policy.json)
-is for upstream development selection, not permission to test several candidates on fresh outcomes.
-Selection requires room for both roles. The batch runner
-reserves all planned runs and its maximum subprocess duration before publishing a start marker.
-Reservations survive errors and crashes, are never refunded, and are checked again with the run
-receipts. The subprocess uses the same duration calculated by `execution_budget` in
-[`batch.py`](batch.py), including its report/shutdown allowance.
+`lifecycle status` derives state from the append-only hash-linked journal. A pending batch must
+be resolved or abandoned before another selection or rollback; abandonment preserves event
+reservations and spent budget. `close-round` retains history and cannot discard pending acceptance.
+`rollback` requires a reason and verifies the previous version, preserving its existing qualification.
+A restored bootstrap remains unqualified.
 
-A candidate cannot be retried or replaced in the same round. `close-round` records the reason and retains the
-spent budget history; it cannot discard a pending batch. Starting another round requires that the
-previous one be closed. Development rounds run offline grounded/smoke with no paid-call
-budget. Budget files do not accept a candidate-count override. Standalone diagnostic registries without a lifecycle remain available, but
-their already-started runs cannot be attached later as budgeted acceptance evidence.
+The round controls registered offline grounded/smoke work only, not arbitrary shell commands,
+training, paid services or historical experiments. Standalone diagnostic registries remain usable,
+but their already-started runs cannot later become budgeted lifecycle acceptance.
 
-[Development search](search.py) can share that round's budget with fresh acceptance. Start the
-round with the development-manifest and seed arguments shown by `start-round --help`; this
-freezes a calibration-split roster, its input/truth hashes, seeds and the policy's candidate cap.
-The calibration split is reused for development selection because the manifest has no separate
-development split. Use a separate manifest from any fitting/calibration process, and retain its
-selection provenance. A round without these arguments retains the existing acceptance-only
-workflow for a previously selected pair; it does not certify an earlier development-search budget.
+### Production confirmations
 
-Register each frozen candidate through the development purpose in `batch register`, then use the
-same before/after batch runner. Every comparison retains the round incumbent. Registration checks
-that both roles fit the remaining budget; each execution reserves its full run/time allowance in
-the existing journal. Search and acceptance spend from the same total, so reserve enough for the
-eventual acceptance pair as well. Failed or abandoned candidates still count toward the candidate
-cap, and spent execution allowance is never refunded. Registered development events and input
-digests may be reused by development candidates but cannot subsequently be registered as fresh
-acceptance in that registry. Existing acceptance reservations cannot become development batches.
+After G2, register fresh production batches using the original selected candidate **and original
+baseline**. The explicit judge specification and already-cached artifacts must be outside public
+worktrees. [production.py](production.py) validates the official-format specification, binds its
+bytes and cache digest, pins offline evaluator loading, and checks each report's judge identity.
+It does not download weights, authorize paid inference or establish organizer approval.
 
-```bash
-python -m baselines.evaluation.search --help
-python -m baselines.evaluation.search --registry /private/evaluation/registry select --help
-```
+Before either confirmation runs, use `confirmations` with its sealing budget option to bind the
+selection and both confirmation registrations. Sealing rechecks G1/G2, the fixed versions, seeds,
+policy, identical production judge and disjoint event/input identities. The combined budget uses
+the same run/time schema as development but is separate from the development round. In a lifecycle
+registry, the selection must be the current G2 incumbent with no pending development acceptance.
+A third or replacement confirmation cannot be substituted, and partial sealing refuses execution.
 
-Search selection rereads both roles' receipts and persisted results for every completed candidate,
-then calls the existing comparator. An unfinished candidate must be explicitly abandoned with a
-reason; completed evidence cannot be discarded. The selector requires successful runs, positive
-mean development gain and the policy's stratum floor, then chooses the largest event-mean gain
-with batch identity as a deterministic tie-break. No eligible candidate means KEEP_INCUMBENT.
-This is development screening, not the sample-sized confidence test required for G2. Selection
-closes development registrations/runs for that round. Fresh acceptance must use the selected
-immutable candidate and seeds, with cutoffs after the development task resolution bound; its runs
-and later evidence replay recheck the selection. First-availability dates, prior human exposure
-and independence remain separate provenance obligations. The budget controls this registered
-offline runner, not arbitrary shell commands, earlier experiments, training or paid services.
-
-Production confirmations retain the original selected pair after development promotion. Register
-fresh batches with the production options exposed by [`batch register`](batch.py); the explicit
-judge specification and its already-cached model artifacts must live outside every public worktree.
-[`production.py`](production.py) validates the official specification, binds its bytes and cache
-digest, pins the evaluator subprocess environment to that configuration with offline loading,
-and checks every reported judge identity. It does not download a model, permit paid inference,
-or establish organizer approval. Smoke registration remains the default.
-
-Before either confirmation runs, use [`confirmations`](confirmations.py) to seal the selected
-batch and both confirmation registrations with an external combined execution budget. Its help
-defines the sealing and audit arguments; the budget uses the same run/time limit fields as a
-development round. Sealing rechecks the selection's G1/G2 evidence, the original versions and seeds,
-the policy, identical production judges, and disjoint event/input reservations across all batches.
-Both confirmations must be sealed together; a third or replacement batch cannot be substituted.
-In a lifecycle registry, the selected candidate must already be the G2 incumbent with no pending
-development batch. Production confirmations use their own sealed budget rather than a new
-development selection against that incumbent.
-
-```bash
-python -m baselines.evaluation.confirmations --help
-```
-
-Run each role through the existing batch runner and then decide each batch. The confirmation
-audit rechecks original reports and receipts, both sides' production faithfulness, and each batch's
-G1/G2 result separately. A failed batch cannot disappear into a pooled average. A started role is
-consumed even if it crashes; partial sealing or missing evidence refuses execution or audit.
-The audit retains unmeasured organizer runtime equivalence and artifact eligibility and cannot
-declare a production candidate. These external evidence contracts remain to be implemented when
-the organizer publishes their requirements.
-
-```bash
-python -m baselines.evaluation.acceptance --help
-python -m baselines.evaluation.batch --help
-python -m baselines.evaluation.batch register --help
-python -m baselines.evaluation.batch run --help
-python -m baselines.evaluation.batch decide --help
-```
-
-Store the registry, manifests, version declarations and outputs outside all public
-worktrees. Each registry reserves event IDs and input digests, even across renamed
-cases or different seeds. Starting a role burns that run; a failed or interrupted
-run must not be rerun on the same batch. Successful or participant-failed complete
-runs receive a digest-bound receipt. `decide` verifies both receipts and writes an
-exclusive decision file; later calls must inspect that file instead of recomputing
-selection. A changed source, policy, roster or report is refused.
-
-The registry prevents accidental replay and post-hoc substitution; it is not an
-anti-tamper service against someone who controls its files. It does not establish
-that the data were previously unseen by people, that event IDs are independent,
-or that source licensing and cutoff provenance are valid. These still require
-separate provenance evidence. The production confirmation mechanism does not establish actual
-acceptance until eligible fresh data and the approved judge are available. Production eligibility
-and equivalence remain unmeasured. Registered development search and acceptance share round limits;
-historical unregistered experiments do not acquire budget evidence retroactively.
-The lifecycle does not declare the overall goal complete.
-Saved decisions produced by a different evaluator revision may fail recomputation; keep their
-original evidence instead of rewriting them to pass a new transition.
+Run each role through `batch run`, decide each batch, then use the confirmation audit. It rechecks
+original reports, receipts, both roles' production faithfulness and every batch's G1/G2 separately;
+a pooled average cannot hide a failed batch. Organizer runtime equivalence and artifact eligibility
+remain UNMEASURED until their evidence contracts are implemented and satisfied. This audit does
+not declare a production candidate, deploy, submit or mark the overall goal complete.
