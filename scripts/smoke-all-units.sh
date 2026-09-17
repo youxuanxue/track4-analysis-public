@@ -11,6 +11,7 @@ mkdir -p "$OUT/units"
 pass_gate=0
 pass_smoke=0
 total=0
+failures=0
 
 for unit_dir in units/t4-*/; do
   unit_id="$(basename "$unit_dir")"
@@ -29,6 +30,7 @@ for unit_dir in units/t4-*/; do
     pass_gate=$((pass_gate + 1))
     echo "  faithfulness: PASS"
   else
+    failures=$((failures + 1))
     echo "  faithfulness: FAIL"
   fi
 
@@ -36,6 +38,7 @@ for unit_dir in units/t4-*/; do
     pass_smoke=$((pass_smoke + 1))
     echo "  smoke: PASS"
   else
+    failures=$((failures + 1))
     echo "  smoke: FAIL"
   fi
 done
@@ -43,3 +46,7 @@ done
 echo ""
 echo "faithfulness gate: $pass_gate/$total"
 echo "smoke admissible:  $pass_smoke/$total"
+
+if (( failures > 0 )); then
+  exit 1
+fi
