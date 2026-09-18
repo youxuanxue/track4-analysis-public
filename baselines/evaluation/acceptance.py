@@ -541,9 +541,9 @@ def audit(
         for name, reason in (
             (
                 "independent_confirmations",
-                # G3-local once fresh disjoint batches exist; still required by policy
-                # (confirmation_batches=2). Completing confirmations without an approved
-                # judge does not by itself yield overall G3=PASS.
+                # Measured by confirmations.py under production profile + pinned judge
+                # (G3-official). Ordinary smoke batch rechecks are G3-local only and do
+                # not satisfy this check. Policy still requires confirmation_batches=2.
                 "needs two non-overlapping fresh batches with the same frozen pair and judge",
             ),
             (

@@ -5,10 +5,12 @@ repeatable quality improvement (G2), and production validation (G3). Each promot
 compares an immutable candidate with its frozen incumbent on fresh evidence.
 Passing these levels creates an internal release candidate; **only the organisers
 can establish a winning rank**. G3 thresholds are not lowered after a G2 win.
-G3 work is split into **G3-local** (disjoint confirmation on fresh events; team-owned)
-and **G3-official** (approved production NLI judge, runtime equivalence, artifact
-eligibility; organiser-bound and often UNMEASURED until specs ship). The hosted
-leaderboard track is parallel to this ladder, not gated on full G3=PASS.
+G3 work is split into **G3-local** (disjoint quality rechecks via ordinary
+`batch`; team-owned; does not flip toolkit G3) and **G3-official** (the
+`confirmations` path: approved production NLI judge, dual batches, runtime
+equivalence, artifact eligibility; organiser-bound and often UNMEASURED until
+specs ship). The hosted leaderboard track is parallel to this ladder, not gated
+on full G3=PASS.
 
 # Track 4 夺冠路径与迭代验收计划
 
@@ -20,7 +22,7 @@ leaderboard track is parallel to this ladder, not gated on full G3=PASS.
 
 | 缺口 | 归属 | 说明 |
 | --- | --- | --- |
-| 互不重叠的确认事件库存 | **G3-local** | r8 类验收批已消耗一组密封事件；确认批不得换皮重用 |
+| 互不重叠的确认事件库存 | **G3-local**（质量复测）/ 日后 **G3-official** | r8 类验收批已消耗一组密封事件；不得换皮重用。无生产 judge 时只用普通 `batch` 复测 |
 | 获准生产 NLI judge / pins | **G3-official** | 官方规格未公布前，`production_faithfulness` 保持 UNMEASURED |
 | 运行等价性、工件合规 | **G3-official** | 证据合同未落地前不得自证 PASS |
 | 托管榜分数与弱 unit | **赛题主线** | 与内部 G3 并行，不互相阻塞 |
@@ -63,12 +65,13 @@ leaderboard track is parallel to this ladder, not gated on full G3=PASS.
 
 | 子集 | 包含的检查（概念） | 谁能推进 | 在官方 judge 公布前的合法状态 |
 | --- | --- | --- | --- |
-| **G3-local** | 互不重叠确认批上的质量门（同一冻结 before/after；事件/input 与 G2 批不相交） | 队伍：扩新鲜事件 → seal → confirmations | 可测 PASS/FAIL；**单独完成不等于 G3=PASS** |
-| **G3-official** | `production_faithfulness`、`production_equivalence`、`artifact_eligibility` | 依赖主办方规格、pins 与证据合同 | 预期 **UNMEASURED**，不记为工程失败 |
+| **G3-local** | 与 G2 **事件/input 不相交** 的第二（及后续）密封质量批：同一冻结 before/after，走普通 `batch register/run/decide`（可为 smoke） | 队伍：扩新鲜事件 → 密封 batch | 可测质量 PASS/FAIL；**不**调用 `confirmations.seal`，也**不**把 toolkit 总 G3 翻成 PASS |
+| **G3-official** | `confirmations` 双批审计：`independent_confirmations`、`production_faithfulness`、`production_equivalence`、`artifact_eligibility` | 依赖获准生产 judge / pins 与证据合同；`confirmations.py` **强制** `profile=production` 且双方同一 `production_judge` | 规格未公布前预期 **UNMEASURED**，不记为工程失败 |
 
 纪律：
 
 - 不得用 smoke 忠实度冒充生产 NLI，不得把确认批降为 1 批来「提前 PASS」。
+- **禁止**在无生产 judge 时调用 `confirmations.seal` 并宣称推进了政策意义上的 confirmation；无 judge 时只允许 G3-local 的普通 batch 质量复测。
 - G2 上为分层覆盖引入的 classification/ranking **视图**若改变假设句形态，进入 G3-official 前须复查生产 judge 下的可证成性；不因此放宽政策。
 - 本地 Docker / smoke 测量不证明官方环境等价。
 
@@ -98,12 +101,11 @@ flowchart TD
     F -->|FAIL| E
     F -->|UNMEASURED| G[补缺失证据，不晋级]
     F -->|PASS| H[更新开发 incumbent，保留旧版]
-    H --> I1[G3-local：互不重叠确认批]
-    H --> I2[G3-official：等生产 judge / 等价合同]
-    I1 --> J{两侧均 PASS?}
-    I2 --> J
-    J -->|是| K[交付生产候选、复现与回滚包]
-    J -->|官方侧 UNMEASURED| L[记录阻塞；可并行推进赛题提交]
+    H --> I1[G3-local：disjoint 质量批 via batch]
+    H --> I2[G3-official：confirmations + 生产 judge]
+    I1 --> L[记录阻塞或内部信心；可并行赛题提交]
+    I2 -->|双批+judge 全 PASS| K[交付生产候选、复现与回滚包]
+    I2 -->|规格未公布| L
 ```
 
 每轮优先处理开发集中的最大可恢复损失，综合事件覆盖、实施成本与合规风险提出一个主要机制假设。复用已有 evidence/reasoner/calibration 工具；机制交互用预先定义的消融比较。未晋级但得到可靠淘汰结论，也算有效迭代。
@@ -120,9 +122,9 @@ flowchart TD
 
 恢复当前 goal 只需出现能推进某一缺口的新证据，不要求全部条件同时到齐：
 
-1. **数据就绪（G2 与 G3-local）**：核对许可、首次可得时间、独立分组与现行政策；G2 批次与后续确认批必须事件不相交。可提前规划确认数据，但不把全部确认库存就绪额外设为单独 G2 的前置门槛。
+1. **数据就绪（G2 与 G3-local）**：核对许可、首次可得时间、独立分组与现行政策；G2 批次与后续质量复测批必须事件不相交。可提前规划日后 `confirmations` 用的库存，但不把全部确认库存就绪额外设为单独 G2 的前置门槛。
 2. **来源资格补齐**：更新私有工件说明，重算候选适用范围；记录模型辅助选优、继承历史及后续来源浏览，不能因最终推理不调用模型就省略。
-3. **生产配置就绪（G3-official）**：核对获准 judge 规格、缓存、运行条件及调用预算；规格未公布时停止空转探测，把状态记为 UNMEASURED 并转向赛题主线或 G3-local。
+3. **生产配置就绪（G3-official）**：核对获准 judge 规格、缓存、运行条件及调用预算；规格未公布时停止空转探测，把状态记为 UNMEASURED 并转向赛题主线或 G3-local（普通 batch，不是 `confirmations.seal`）。
 4. **赛题主线（并行）**：托管提交、弱 unit 与合同合规；不以完整 G3=PASS 为闸门。
 
 没有可推进事项时记录真实阻塞，停止重复探测失败入口或追加无验收需求的工程。连续同类失败按会话纪律暂停分析，不以放宽政策、重跑或改分组制造成功。
