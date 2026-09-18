@@ -48,7 +48,7 @@ on full G3=PASS.
 | --- | --- | --- |
 | G1：稳定交付 | 声明清单的正常运行零机械失败；结构、实体覆盖、引用、cutoff、资源和请求账本合格；真实容器冷启动及故障演练通过 | 冻结清单、代码/依赖/镜像身份、逐单位运行与故障工件 |
 | G2：可重复提升 | 双方 G1 通过；固定对照，在新验收批次上达到政策的样本、重复、配对提升和分层防退化要求（含三 target type 分层） | 完整双方报告、事件分组、配对区间与领域/target type 分层结果 |
-| G3：内部生产候选 | 同一候选通过 G1/G2；见下方 **G3-local / G3-official** 拆分；完整 PASS 需两侧全部合格 | 确认批原始证据、judge 来源与 pins、逐单位 faithfulness、模型/选优来源说明、候选与回滚包 |
+| G3：内部生产候选 | 同一候选通过 G1/G2；**完整 PASS = G3-official**（见 §2.2）；G3-local 可选且不充分 | 确认批原始证据、judge 来源与 pins、逐单位 faithfulness、模型/选优来源说明、候选与回滚包 |
 
 数值阈值唯一来源为 [acceptance-policy.json](../baselines/evaluation/acceptance-policy.json)，由 [acceptance.py](../baselines/evaluation/acceptance.py) 校验并以摘要绑定批次。这是内部政策，不是赛事规则或统计功效保证；**禁止按结果降低门槛**。
 
@@ -131,4 +131,4 @@ flowchart TD
 
 ## 6. 完成定义
 
-同一个不可变生产候选完整通过 G1/G2/G3（含 G3-local 与 G3-official），版本、数据、judge、政策、原始报告、工件许可、复现包及回滚链全部可核验，才标记 **内部** goal 完成。当前生产运行等价性、工件资格和生产资格登记仍未完成时，确认审计保留 `UNMEASURED`。内部验收只覆盖报告声明的范围，不证明未来零失败或最终夺冠。
+同一个不可变生产候选完整通过 G1/G2/G3-official（`confirmations` + 获准 judge + 等价/工件核验），版本、数据、judge、政策、原始报告、工件许可、复现包及回滚链全部可核验，才标记 **内部** goal 完成。G3-local 质量复测可增强信心，但不是把总 G3 翻 PASS 的充分条件。当前生产运行等价性、工件资格和生产资格登记仍未完成时，确认审计保留 `UNMEASURED`。内部验收只覆盖报告声明的范围，不证明未来零失败或最终夺冠。
