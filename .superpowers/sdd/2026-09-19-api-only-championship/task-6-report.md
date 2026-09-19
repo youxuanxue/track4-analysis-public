@@ -29,9 +29,11 @@ Task 6 adds a fail-closed inventory audit for disjoint evaluation manifests. The
 
 ## Repair review
 
-The repair removes caller-supplied `expected_runs` records, reads the authoritative policy from `acceptance-policy.json`, requires non-empty domains and the three allowed target types, and rejects duplicate or inconsistently mapped group identities. Synthetic coverage now uses 60 event groups with 20 groups per target type and an even three-domain distribution. Subprocess tests cover exit statuses 0, 1, and 2, malformed input, output failure, and multiple consumed manifests. No private r8 data was accessed and no batch or confirmation sealing was run.
+The repair removes caller-supplied `expected_runs` records, reads the authoritative policy from `acceptance-policy.json`, requires non-empty domains and the three allowed target types, and rejects duplicate or inconsistently mapped group identities across the candidate plus every consumed manifest. Synthetic coverage now uses 60 event groups with 20 groups per target type and an even three-domain distribution. Subprocess tests cover exit statuses 0, 1, and 2, malformed input, output failure, and multiple consumed manifests. No private r8 data was accessed and no batch or confirmation sealing was run.
 
 Repair verification:
 
-- `.venv/bin/python -m pytest baselines/evaluation/tests/test_inventory.py -q` — 15 passed.
+- `.venv/bin/python -m pytest baselines/evaluation/tests/test_inventory.py -q` — 19 passed.
+- `.venv/bin/python -m pytest baselines/evaluation -q` — 166 passed, 18 skipped.
+- `.venv/bin/python -m pytest baselines/tests/test_units_carry_no_answer_material.py -q` — 4 passed.
 - Temporary installation of `qfbench2-common==2.4.3` was attempted via the configured package index; the package is unavailable in this environment, so `scoring/ faithfulness/` remains blocked at collection with `ModuleNotFoundError: qfbench2_common`.

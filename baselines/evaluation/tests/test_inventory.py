@@ -156,7 +156,61 @@ def test_cli_accepts_multiple_consumed_manifests(tmp_path, capsys):
     consumed_b = write_roster(tmp_path / "b.json", [make_case(tmp_path, "b", group="b", domain="b", target_type="classification")])
     code = inventory.main(["--candidate", str(candidate), "--consumed", str(consumed_a), str(consumed_b)])
     assert code == 1
-    assert json.loads(capsys.readouterr().out)["consumed"] == sorted([str(consumed_a.resolve()), str(consumed_b.resolve())])
+    output = json.loads(capsys.readouterr().out)
+    assert output["consumed"] == sorted([str(consumed_a.resolve()), str(consumed_b.resolve())])
+    assert output["overlap"] == {"groups": [], "input_digests": []}
+
+
+def test_candidate_group_overlap_with_second_consumed_is_rejected(tmp_path):
+    candidate = make_case(tmp_path, "candidate", group="shared", domain="d", target_type="classification")
+    first = make_case(tmp_path, "first", group="first", domain="d", target_type="classification")
+    second = make_case(tmp_path, "second", group="shared", domain="d", target_type="classification")
+    result = inventory.audit(
+        write_roster(tmp_path / "candidate.json", [candidate]),
+        [write_roster(tmp_path / "first.json", [first]), write_roster(tmp_path / "second.json", [second])],
+        policy=synthetic_policy(),
+    )
+    assert result["overlap"]["groups"] == ["shared"]
+    assert result["eligible"] is False
+
+
+def test_candidate_and_second_consumed_duplicate_identity_is_rejected(tmp_path):
+    candidate = make_case(tmp_path, "candidate-same", group="candidate-group", domain="d", target_type="classification")
+    first = make_case(tmp_path, "first", group="first-group", domain="d", target_type="classification")
+    second = make_case(tmp_path, "second-same", group="second-group", domain="d", target_type="classification")
+    candidate["id"] = second["id"] = "same"
+    with pytest.raises(ValueError, match="duplicate case/group identity"):
+        inventory.audit(
+            write_roster(tmp_path / "candidate.json", [candidate]),
+            [
+                write_roster(tmp_path / "first.json", [first]),
+                write_roster(tmp_path / "second.json", [second]),
+            ],
+            policy=synthetic_policy(),
+        )
+
+
+def test_consumed_manifests_duplicate_identity_is_rejected(tmp_path):
+    first = make_case(tmp_path, "same-first", group="g1", domain="d", target_type="classification")
+    second = make_case(tmp_path, "same-second", group="g2", domain="d", target_type="classification")
+    first["id"] = second["id"] = "same"
+    with pytest.raises(ValueError, match="duplicate case/group identity"):
+        inventory.audit(
+            write_roster(tmp_path / "candidate.json", [make_case(tmp_path, "candidate", group="c", domain="d", target_type="classification")]),
+            [write_roster(tmp_path / "first.json", [first]), write_roster(tmp_path / "second.json", [second])],
+            policy=synthetic_policy(),
+        )
+
+
+def test_group_mapping_inconsistency_across_manifests_is_rejected(tmp_path):
+    first = make_case(tmp_path, "first", group="shared", domain="d1", target_type="classification")
+    second = make_case(tmp_path, "second", group="shared", domain="d2", target_type="classification")
+    with pytest.raises(ValueError, match="group maps inconsistently"):
+        inventory.audit(
+            write_roster(tmp_path / "candidate.json", [first]),
+            [write_roster(tmp_path / "consumed.json", [second])],
+            policy=synthetic_policy(),
+        )
 
 
 def test_unknown_target_type_and_inconsistent_group_are_rejected(tmp_path):

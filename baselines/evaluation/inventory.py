@@ -108,6 +108,7 @@ def audit(candidate: Path, consumed: list[Path], *, policy: dict | None = None) 
     consumed_rows = []
     for path in consumed:
         consumed_rows.extend(_validate_rows(_roster_rows(path), path, policy))
+    all_rows = _validate_rows(candidate_rows + consumed_rows, Path("candidate+consumed"), policy)
 
     candidate_groups = {row["group"] for row in candidate_rows}
     consumed_groups = {row["group"] for row in consumed_rows}
