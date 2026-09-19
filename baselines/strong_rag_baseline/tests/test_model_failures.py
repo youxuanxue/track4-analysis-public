@@ -244,6 +244,25 @@ def test_prompt_includes_target_units_domain_and_resolution():
     assert "TARGET DOMAIN: minimum=0.0, maximum=1.0" in prompt
 
 
+def test_rate_change_prompt_distinguishes_level_from_basis_point_change():
+    prompt = build_user_prompt(
+        {
+            "prompt": "Predict the change in the policy rate by the next meeting.",
+            "target": {
+                "type": "regression",
+                "name": "policy_rate_change_bps",
+                "unit": "basis points change",
+            },
+            "cutoff_date": "2024-01-01",
+        },
+        {"entity_id": "FOMC"},
+        [],
+    )
+    assert "change in basis points" in prompt
+    assert "not the current rate level" in prompt
+    assert "subtract the current level from the projected level" in prompt
+
+
 def test_http_house_endpoint_honors_model_seed_and_auth(monkeypatch):
     monkeypatch.setenv("MODEL_ENDPOINT", "https://house.example/v1")
     monkeypatch.setenv("MODEL_NAME", "pinned-house-model")

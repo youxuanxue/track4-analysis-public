@@ -118,6 +118,12 @@ def build_user_prompt(task: dict, entity: dict, retrieved: list[Chunk]) -> str:
         lines.append(
             "Predict the probability of the target event on the 0 to 1 scale, not confidence in your selected label."
         )
+    if spec.mode == "change_bps":
+        lines.append(
+            "TARGET SEMANTICS: predict the change in basis points from the current level to the projected level, "
+            "not the current rate level. When both levels are available, subtract the current level from the "
+            "projected level and report that difference in basis points."
+        )
     level = spec.level
 
     lines.append("\nENTITY:")
