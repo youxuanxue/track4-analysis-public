@@ -13,17 +13,18 @@ Determinism: temperature 0 and a fixed ``seed`` are sent on every request.
 """
 from __future__ import annotations
 
-import json
 import copy
 import hashlib
+import json
 import time
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from http.client import HTTPException
-from typing import Callable, Protocol
+from typing import Protocol
 from urllib.parse import urlsplit
 
-from .config import Config, HOUSE_MAX_OUTPUT_TOKENS, HOUSE_MAX_REQUESTS
+from .config import HOUSE_MAX_OUTPUT_TOKENS, HOUSE_MAX_REQUESTS, Config
 
 
 class ModelBudgetExceeded(RuntimeError):

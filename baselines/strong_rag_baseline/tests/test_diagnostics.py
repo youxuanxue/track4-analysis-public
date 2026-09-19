@@ -10,19 +10,16 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from baselines.strong_rag_baseline import cli
-from baselines.strong_rag_baseline import agent
+from baselines.strong_rag_baseline import agent, cli
 from baselines.strong_rag_baseline.agent import EntityResult
-from baselines.strong_rag_baseline.indexer import build_index
-from baselines.strong_rag_baseline.retriever import BM25Index
 from baselines.strong_rag_baseline.client import (
     HTTPModelClient,
-    ModelBudgetExceeded,
-    ModelTimeout,
     MockModelClient,
+    ModelBudgetExceeded,
 )
 from baselines.strong_rag_baseline.config import Config
-
+from baselines.strong_rag_baseline.indexer import build_index
+from baselines.strong_rag_baseline.retriever import BM25Index
 
 SECRET = "synthetic-private-token-do-not-log"
 

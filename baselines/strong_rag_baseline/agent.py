@@ -10,7 +10,7 @@ import json
 from dataclasses import dataclass
 from typing import Literal
 
-from .client import ModelClient, ModelBudgetExceeded, ModelTimeout
+from .client import ModelBudgetExceeded, ModelClient, ModelTimeout
 from .evidence import evidence_references, prepare_evidence
 from .indexer import Chunk, IndexedCorpus
 from .prompts import SYSTEM_PROMPT, build_response_schema, build_user_prompt
@@ -44,7 +44,7 @@ class EntityResult:
 def _parse_model_json(raw: str) -> dict:
     """Accept one JSON object, with optional complete Markdown fences."""
     if not isinstance(raw, str):
-        raise ValueError("model reply is not text")
+        raise ValueError("model reply is not text")  # noqa: TRY004
     if len(raw) > 1_048_576:
         raise ValueError("model reply exceeds 1 MiB")
     text = raw.strip()
@@ -54,7 +54,7 @@ def _parse_model_json(raw: str) -> dict:
         text = text[4:-3].strip()
     parsed = json.loads(text)
     if not isinstance(parsed, dict):
-        raise ValueError("model reply is not an object")
+        raise ValueError("model reply is not an object")  # noqa: TRY004
     return parsed
 
 

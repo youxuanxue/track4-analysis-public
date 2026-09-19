@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import io
 import json
-from http.client import BadStatusLine, IncompleteRead
 from copy import deepcopy
 from dataclasses import replace
+from http.client import BadStatusLine, IncompleteRead
 
 import pytest
 
@@ -16,7 +16,6 @@ from baselines.strong_rag_baseline.config import Config
 from baselines.strong_rag_baseline.indexer import Chunk, IndexedCorpus
 from baselines.strong_rag_baseline.prompts import build_user_prompt
 from baselines.strong_rag_baseline.retriever import BM25Index
-
 
 TEXT = "Acme forecasts revenue growth of 5 percent, with a range of 4 to 6 percent."
 

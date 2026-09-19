@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import json
 
-from .indexer import Chunk
 from .evidence import evidence_references
+from .indexer import Chunk
 from .quantities import TargetSpec
 from .tables import summary_columns, table_summaries
 
