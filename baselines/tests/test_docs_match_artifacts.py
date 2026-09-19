@@ -584,12 +584,29 @@ _API_ONLY_DOCS = [
     "baselines/strong_rag_baseline/README.md",
 ]
 _AFFIRMATIVE_NON_API_PATHS = [
-    re.compile(r"category\s*=\s*[\"']byo-(?:small|large)[\"']", re.I),
-    re.compile(r"(?:ship|package|bundle|submit|supply)\b[^.\n]{0,80}\bLoRA\s+adapter\b", re.I),
+    re.compile(
+        r"(?:category\s*=\s*[\"']|[\"']category[\"']\s*:\s*[\"'])"
+        r"byo-(?:small|large)",
+        re.I,
+    ),
+    re.compile(
+        r"(?:ship|package|bundle|submit|supply)\b[^.\n]{0,80}"
+        r"\b(?:LoRA\s+)?adapter(?:\s+artifact)?\b",
+        re.I,
+    ),
     re.compile(r"\badapter(?:_model\.safetensors|_config\.json)\b", re.I),
     re.compile(
         r"(?:ship|package|bundle|submit|supply|provide)\b[^.\n]{0,80}"
         r"\b(?:full\s+)?(?:language[- ]model|model)\s+weights\b",
+        re.I,
+    ),
+    re.compile(
+        r"\b(?:participant[- ]provided\s+)?(?:language[- ]model|full\s+model|model)\s+weights\b"
+        r"[^.\n]{0,50}\b(?:are|is|may be)\s+(?:allowed|permitted|accepted|authorized)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\badapters?\b[^.\n]{0,50}\b(?:are|is|may be)\s+(?:allowed|permitted|accepted|authorized)\b",
         re.I,
     ),
 ]
@@ -621,9 +638,15 @@ def test_api_only_guard_catches_affirmative_non_api_contracts() -> None:
     for prohibited in (
         'Use category = "byo-small" for a deterministic submission.',
         'Select category = "byo-large" for the larger tier.',
+        'Set "category": "byo-small" in submission.json.',
+        "Package one adapter with your agent.",
+        "Submit an adapter artifact.",
         "Ship one LoRA adapter with your agent.",
         "Package adapter_model.safetensors and adapter_config.json in the image.",
         "Participants may bundle language-model weights in the image.",
+        "Participant language-model weights are permitted.",
+        "Full model weights are allowed for this category.",
+        "Adapters are accepted for official scoring.",
     ):
         assert _affirmative_non_api_paths(prohibited), prohibited
     assert not _affirmative_non_api_paths(

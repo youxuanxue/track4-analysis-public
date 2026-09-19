@@ -36,3 +36,17 @@ Task 1 (N1) is implemented as an API-only participant contract. Active participa
 
 - The exemplar smoke run is still inadmissible due to `shared.schema.invalid_output`. This is outside the N1 documentation change and was not modified because the task scope is the participant contract.
 - The requested worktree has no native `.venv`; verification used the existing adjacent public-worktree environment by absolute path. No environment symlink or generated environment file remains in the worktree.
+
+## Review repair append (N1 guard coverage)
+
+The review identified three guard coverage gaps and one wording issue. The self-control cases now cover JSON/YAML/Markdown-style `"category": "byo-small"` and `byo-large`, generic adapter packaging (`Package one adapter`, `Submit an adapter artifact`), and affirmative policy statements that permit participant language-model weights, full model weights, or adapters without an action verb. The matcher was expanded only within the N1 document guard; no N2 version-pin work was added. The remaining `both modes` wording in `SUBMISSION_CLI.md` was changed to explicit `restricted` and `none` network modes.
+
+TDD evidence for the repair: the new self-control cases were added first and the focused test failed on the JSON category sample; after the matcher update, the focused self-control passed. A direct six-sample assertion confirmed all reviewed forms are detected.
+
+Repair verification:
+
+- `.venv/bin/python -m pytest baselines/tests/test_docs_match_artifacts.py -q` (using the adjacent public-worktree environment): `13 passed in 0.05s`.
+- Direct review-sample check: `6 review samples detected`.
+- `git diff --check`: passed with no output.
+
+No new residual concern was introduced; the pre-existing exemplar smoke `shared.schema.invalid_output` concern remains as documented above.

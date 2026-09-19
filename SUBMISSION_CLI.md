@@ -87,7 +87,8 @@ internet** in official scoring.
 > submission to supply one, so a vendor key would have nothing to reach even if you had one.
 
 Data and text cutoffs (gate `g2_cutoff_resource`) are unchanged and still enforced by the harness
-in both modes — network access is for **model calls only**, never for fetching data.
+in `restricted` and `none` network modes — network access is for **model calls only**, never for
+fetching data.
 
 ### Submission category (Track 4)
 
