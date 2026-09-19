@@ -58,6 +58,23 @@ def test_current_operational_toolkit_pins_are_243():
     assert not offenders, "operational toolkit pins must be 2.4.3: " + ", ".join(offenders)
 
 
+def test_each_operational_surface_contains_an_explicit_243_pin():
+    expected = {
+        ".github/workflows/ci.yml": 'Agenthon2026-public.git@v2.4.3#subdirectory=common',
+        "README.md": 'Agenthon2026-public.git@v2.4.3#subdirectory=common',
+        "SUBMISSION_CLI.md": "Agenthon2026-public/blob/v2.4.3/",
+        "baselines/requirements.txt": 'Agenthon2026-public.git@v2.4.3#subdirectory=common',
+        "faithfulness/judge.py": 'Agenthon2026-public.git@v2.4.3#subdirectory=common',
+        "docs/CHAMPIONSHIP-PLAN.md": "toolkit 2.4.3",
+    }
+    missing = [
+        f"{relative}: {needle!r}"
+        for relative, needle in expected.items()
+        if needle not in (REPO / relative).read_text(encoding="utf-8")
+    ]
+    assert not missing, "each operational surface must carry an explicit v2.4.3 pin: " + ", ".join(missing)
+
+
 def test_scorer_identity_carries_the_version():
     ident = scorer_identity()
     assert ident["scorer_version"] == SCORER_VERSION
