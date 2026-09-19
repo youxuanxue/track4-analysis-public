@@ -374,8 +374,10 @@ not declare a production candidate, deploy, submit or mark the overall goal comp
 optional quality batch is registered. It compares event groups and staged input digests, so renaming
 a case or group cannot hide reused prediction inputs. The audit reports deterministic JSON with
 counts by domain and target type; missing or malformed data is an error, never an eligible result.
-The default policy requires three domains, two independent groups per domain, and two groups per
-target type. Run it with:
+The audit reads the authoritative minimums and target-type allowlist from
+[`acceptance-policy.json`](acceptance-policy.json): 60 event groups, three domains, 20 groups per
+domain/stratum, and at least 20 groups for each of classification, regression, and ranking. Run it
+with:
 
 ```bash
 python -m baselines.evaluation inventory \
