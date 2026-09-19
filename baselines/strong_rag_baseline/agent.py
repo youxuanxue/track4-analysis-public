@@ -38,6 +38,7 @@ class EntityResult:
     rationale: str = ""
     source: Literal["model", "grounded"] = "grounded"
     fallback_reason: FallbackReason | None = None
+    diagnostics: dict[str, str] | None = None
 
 
 def _parse_model_json(raw: str) -> dict:
@@ -158,9 +159,17 @@ def run_entity(
 ) -> EntityResult:
     retrieved = prepare_evidence(task, entity, index, corpus, top_k=top_k).chunks
     failure_stage: FallbackReason = "model_request"
+    stages: dict[str, str] = {
+        "request": "pending",
+        "json": "not_attempted",
+        "evidence": "not_attempted",
+        "prediction": "not_attempted",
+    }
     try:
         if not retrieved:
             failure_stage = "model_evidence"
+            stages["request"] = "accepted"
+            stages["json"] = "not_attempted"
             raise ValueError("no entity-bound evidence available")
         prompt = build_user_prompt(task, entity, retrieved)
         structured = getattr(client, "complete_json", None)
@@ -171,8 +180,10 @@ def run_entity(
             if callable(structured)
             else client.complete(SYSTEM_PROMPT, prompt)
         )
+        stages["request"] = "accepted"
         failure_stage = "model_json"
         parsed = _parse_model_json(raw)
+        stages["json"] = "accepted"
         kind = target_type(task)
         point = parsed.get("point_forecast")
         band = parsed.get("interval")
@@ -182,6 +193,7 @@ def run_entity(
             raise ValueError(
                 "model evidence does not exactly resolve in retrieved text"
             )
+        stages["evidence"] = "accepted"
         failure_stage = "model_prediction"
         prediction: dict = {
             "entity_id": entity.get("entity_id", ""),
@@ -193,6 +205,7 @@ def run_entity(
         if point is not None:
             prediction["point_forecast"] = point
         validate_prediction(task, prediction, corpus)
+        stages["prediction"] = "accepted"
         prediction["interval"] = {key: band[key] for key in ("level", "lo", "hi")}
     except (
         OSError,
@@ -203,12 +216,24 @@ def run_entity(
         IndexError,
         OverflowError,
         RecursionError,
+        TimeoutError,
     ) as exc:
         result = run_entity_grounded(task, entity, index, corpus, top_k)
         result.fallback_reason = (
             "model_budget" if isinstance(exc, ModelBudgetExceeded) else failure_stage
         )
+        if isinstance(exc, ModelBudgetExceeded):
+            stages["request"] = "budget"
+        elif isinstance(exc, TimeoutError):
+            stages["request"] = "timeout"
+        elif stages["request"] == "pending":
+            stages["request"] = "rejected"
+        result.diagnostics = stages
         return result
     return EntityResult(
-        prediction=prediction, dropped_claims=dropped, model_raw=raw, source="model"
+        prediction=prediction,
+        dropped_claims=dropped,
+        model_raw=raw,
+        source="model",
+        diagnostics=stages,
     )

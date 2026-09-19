@@ -10,7 +10,7 @@ import pytest
 
 from baselines.strong_rag_baseline import cli
 from baselines.strong_rag_baseline.agent import EntityResult
-from baselines.strong_rag_baseline.client import MockModelClient
+from baselines.strong_rag_baseline.client import MockModelClient, ModelBudgetExceeded
 
 
 SECRET = "synthetic-private-token-do-not-log"
@@ -132,6 +132,13 @@ def test_model_success_records_only_bounded_diagnostics(unit, tmp_path, monkeypa
                 "fallback_reason": None,
                 "elapsed_s": 5.0,
                 "dropped_claims": 0,
+                "model_accepted": True,
+                "stages": {
+                    "request": "accepted",
+                    "json": "accepted",
+                    "evidence": "accepted",
+                    "prediction": "accepted",
+                },
             }
         ],
     }
@@ -251,3 +258,53 @@ def test_offline_diagnostics_record_zero_requests_without_inventing_model_usage(
         "attempts_used": 0,
         "attempts": [],
     }
+
+
+@pytest.mark.parametrize("target_type", ["classification", "regression", "ranking"])
+def test_diagnostics_propagate_model_acceptance_for_each_target_type(
+    unit, tmp_path, target_type
+):
+    task, corpus, reply = unit
+    task_data = json.loads(task.read_text())
+    task_data["target"] = {"type": target_type, "name": "revenue_growth_pct", "unit": "percent"}
+    if target_type == "classification":
+        reply["label"] = "up"
+        task_data["target"]["labels"] = ["up", "down"]
+    elif target_type == "ranking":
+        reply["rank"] = 1
+        task_data["target"]["name"] = "revenue_rank"
+    task.write_text(json.dumps(task_data))
+    path = tmp_path / "diagnostics.json"
+    cli.run(task, corpus, tmp_path / "answer.json", MockModelClient(json.dumps(reply)), 5, diagnostics_path=path)
+    entity = json.loads(path.read_text())["entities"][0]
+    assert entity["model_accepted"] is True
+    assert entity["stages"] == {
+        "request": "accepted",
+        "json": "accepted",
+        "evidence": "accepted",
+        "prediction": "accepted",
+    }
+
+
+def test_diagnostics_explain_timeout_and_budget_fallback(unit, tmp_path):
+    task, corpus, _ = unit
+
+    def timeout(*args):
+        raise TimeoutError("hidden timeout")
+
+    timeout_path = tmp_path / "timeout.json"
+    cli.run(task, corpus, tmp_path / "timeout-answer.json", MockModelClient(timeout), 5, diagnostics_path=timeout_path)
+    timeout_entity = json.loads(timeout_path.read_text())["entities"][0]
+    assert timeout_entity["fallback_reason"] == "model_request"
+    assert timeout_entity["model_accepted"] is False
+    assert timeout_entity["stages"]["request"] == "timeout"
+
+    class BudgetClient(MockModelClient):
+        def complete(self, *args):
+            raise ModelBudgetExceeded("budget")
+
+    budget_path = tmp_path / "budget.json"
+    cli.run(task, corpus, tmp_path / "budget-answer.json", BudgetClient("unused"), 5, diagnostics_path=budget_path)
+    budget_entity = json.loads(budget_path.read_text())["entities"][0]
+    assert budget_entity["fallback_reason"] == "model_budget"
+    assert budget_entity["stages"]["request"] == "budget"
