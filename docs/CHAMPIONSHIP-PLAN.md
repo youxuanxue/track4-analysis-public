@@ -148,9 +148,9 @@ flowchart TD
 | # | 目标 | 可达依据 | 可核验完成条件 |
 | --- | --- | --- | --- |
 | N1 | **终止 BYO 残留工作并回收预算**：关闭一切以 LoRA/adapter/自备权重为前提的在研分支、数据拟合与验收安排 | issue #8 裁定为最终政策 | 登记的轮次预算中无 BYO 前提项；候选清单全部为 API 模式；私有工件说明重算候选适用范围 |
-| N2 | **toolkit 2.4.3 迁移演练**：在干净环境 pin 2.4.3，descriptor 改 `category = "api"`，对冻结对照在同一新环境重跑双方 | 2.4.3 已发布且 descriptor 拒收 `byo-*` | 双方重跑报告绑定新 toolkit 摘要；评分结果与 2.4.2 环境无未解释分歧；不沿用旧环境数字晋级 |
-| N3 | **赛题主线迭代一轮**：围绕检索质量、提示/推理编排、校准与区间策略提出一个主要机制假设，走开发比较选出一个候选，按 §4 闭环执行 G1/G2；托管 Development 提交与上传预算（5/日、20/期）同步规划 | 上传额度与 Development 开放期内的既有入口 | 一轮闭环产物齐全：假设、单变量改进、开发比较、候选或淘汰原因；托管提交 verdict 与本地报告一致归档 |
-| N4 | **G3-local 质量复测一批**：扩充与 G2 批事件不相交的密封库存，对冻结 before/after 走普通 `batch register/run/decide` | 队伍自有数据通道，不依赖生产 judge | 复测批事件与既有 G2 批不相交可证；批摘要绑定批次与政策；记 PASS/FAIL 为内部信心，**不**调用 `confirmations.seal`，不翻总 G3 |
+| N2 | **toolkit 2.4.3 迁移演练（部分完成）**：公开 pin 与 API descriptor 已迁移；冻结 before/after 的同环境等价性仍 BLOCKED | 2.4.3 已发布且 descriptor 拒收 `byo-*` | 公开 pin 测试、unit validation、descriptor parse/reject 已通过；在冻结对照不可用前，不宣称 2.4.2/2.4.3 等价或晋级 |
+| N3 | **赛题主线迭代一轮（候选门 FAIL）**：已完成 diagnostics 与 `change_bps` 单变量提示实验；真实模型 before/after rejection reduction 未测得 | House-compatible stub 可验证接口，但不能替代真实 House measurement | 保留 hosted incumbent；未达到真实改进门前不构建/推送新候选、不消耗 Development 上传额度 |
+| N4 | **G3-local 质量复测一批（库存 BLOCKED）**：fail-closed 审计工具已完成；在取得足够新鲜事件前不注册 batch | 队伍自有数据通道，不依赖生产 judge | 新库存必须与已消费事件零交集且满足政策 minima；当前只记录 BLOCKED，不调用 `confirmations.seal`，不翻总 G3 |
 | N5 | **每周一次官方信号核查**：周三更新帖（issue #2）与 issue #1 的生产 judge 规格 | 组织方公布节奏为每周三 | 每次核查留痕（日期、结论）；出现生产 judge 规格即按 §5 第 3 条恢复 G3-official；无新信息不追加探测 |
 
 明确不做：不自证 G3=PASS、不以 smoke 忠实度冒充生产 NLI、不新增无验收需求的工程、不按结果降低 `acceptance-policy.json` 门槛。
