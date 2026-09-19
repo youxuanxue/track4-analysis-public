@@ -1,6 +1,6 @@
 ## Executive summary (read this first)
 
-Track 4 permits the limited local numerical artifacts below alongside the approved House model. The adapter-only rule governs language-model serving; it does not prohibit fitted non-neural prediction or calibration parameters. All fitting, selection and calibration data must meet the task's information cutoff and the existing training policy. Additional neural checkpoints require separate organizer approval. Evaluation inputs and citations remain limited to the supplied task and official frozen corpus. This clarification does not change scoring, resource grants, the descriptor schema or BYO service availability.
+Track 4 permits the limited local numerical artifacts below alongside the organizer House model. These artifacts may include fitted non-neural prediction or calibration parameters. All fitting, selection and calibration data must meet the task's information cutoff and the existing training policy. Participant-provided neural checkpoints, language-model weights, fine-tuning, LoRA, adapters and model servers are not submission paths. Evaluation inputs and citations remain limited to the supplied task and official frozen corpus. This clarification does not change scoring, resource grants or the descriptor schema.
 
 ## Permitted local artifacts
 
@@ -15,7 +15,7 @@ Track 4 permits the limited local numerical artifacts below alongside the approv
 
 An unchanged House model combined with these permitted local artifacts uses the API execution mode. Describe every learned local model with the existing `models[]` entry and `access: "local"`; include the House disclosure when used. Pure code and static assets belong in provenance documentation rather than fictitious model entries. This policy does not create a new model-free Track 4 category.
 
-For an approved LoRA submission, the existing one-adapter/base/rank contract still applies, and the serving route must separately be available. Full language-model weights, a second language model or adapter and a participant-run language-model server are not authorized by this clarification.
+This policy preserves the API-only boundary: permitted local artifacts are not participant-provided language models or model-serving components.
 
 ## Provenance and task cutoffs
 

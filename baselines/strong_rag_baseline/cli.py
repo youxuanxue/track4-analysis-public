@@ -107,15 +107,22 @@ def run(
             result = run_entity(task, entity, index, corpus, client, top_k)
         elapsed_s = max(0.0, time.monotonic() - started)
         results.append(result)
-        diagnostics["entities"].append(
-            {
-                "entity_id": entity.get("entity_id", ""),
-                "source": result.source,
-                "fallback_reason": result.fallback_reason,
-                "elapsed_s": elapsed_s,
-                "dropped_claims": result.dropped_claims,
-            }
-        )
+        entity_diagnostics = {
+            "entity_id": entity.get("entity_id", ""),
+            "source": result.source,
+            "fallback_reason": result.fallback_reason,
+            "elapsed_s": elapsed_s,
+            "dropped_claims": result.dropped_claims,
+            "model_accepted": result.source == "model",
+            "stages": result.diagnostics
+            or {
+                "request": "not_attempted",
+                "json": "not_attempted",
+                "evidence": "not_attempted",
+                "prediction": "not_attempted",
+            },
+        }
+        diagnostics["entities"].append(entity_diagnostics)
     answer = build_answer(task, results, corpus)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(

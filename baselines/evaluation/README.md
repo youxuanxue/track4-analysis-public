@@ -15,7 +15,7 @@ The [CLI](./__main__.py) lists supported options:
 python -m baselines.evaluation --help
 python -m baselines.evaluation \
   --units units \
-  --out "$HOME/t4-evaluation/public-baseline" \
+  --out "$PRIVATE_EVALUATION_DIR/public-baseline" \
   --mode grounded
 ```
 
@@ -157,19 +157,19 @@ time window may remain dependent and must not inflate independent-event counts.
 
 ```bash
 python -m baselines.evaluation.historical \
-  --spec /private/evaluation/events.json \
-  --cache /private/evaluation/alfred-cache \
-  --out /private/evaluation/new-benchmark
+  --spec $PRIVATE_EVALUATION_DIR/events.json \
+  --cache $PRIVATE_EVALUATION_DIR/alfred-cache \
+  --out $PRIVATE_EVALUATION_DIR/new-benchmark
 
 python -m baselines.evaluation.review \
-  --report /private/evaluation/run/report.json \
-  --manifest /private/evaluation/new-benchmark/manifest.json \
-  --out /private/evaluation/new-review
+  --report $PRIVATE_EVALUATION_DIR/run/report.json \
+  --manifest $PRIVATE_EVALUATION_DIR/new-benchmark/manifest.json \
+  --out $PRIVATE_EVALUATION_DIR/new-review
 
 python -m baselines.evaluation.compare \
-  --before /private/evaluation/baseline/report.json \
-  --after /private/evaluation/candidate/report.json \
-  --out /private/evaluation/comparison.json
+  --before $PRIVATE_EVALUATION_DIR/baseline/report.json \
+  --after $PRIVATE_EVALUATION_DIR/candidate/report.json \
+  --out $PRIVATE_EVALUATION_DIR/comparison.json
 ```
 
 Use `--units units` instead of `--manifest` to audit public runs. The review packet contains the
@@ -208,11 +208,11 @@ must be regenerated. Then run:
 
 ```bash
 python -m baselines.evaluation.calibration \
-  --fit-manifest /private/evaluation/train-manifest.json \
-  --fit-report /private/evaluation/train-run/report.json \
-  --apply-manifest /private/evaluation/calibration-manifest.json \
-  --apply-report /private/evaluation/calibration-run/report.json \
-  --out /private/evaluation/new-calibrated-run
+  --fit-manifest $PRIVATE_EVALUATION_DIR/train-manifest.json \
+  --fit-report $PRIVATE_EVALUATION_DIR/train-run/report.json \
+  --apply-manifest $PRIVATE_EVALUATION_DIR/calibration-manifest.json \
+  --apply-report $PRIVATE_EVALUATION_DIR/calibration-run/report.json \
+  --out $PRIVATE_EVALUATION_DIR/new-calibrated-run
 ```
 
 The finite-sample quantile uses the maximum absolute error within each event. Correlated
@@ -367,3 +367,27 @@ original reports, receipts, both roles' production faithfulness and every batch'
 a pooled average cannot hide a failed batch. Organizer runtime equivalence and artifact eligibility
 remain UNMEASURED until their evidence contracts are implemented and satisfied. This audit does
 not declare a production candidate, deploy, submit or mark the overall goal complete.
+
+## Disjoint inventory audit
+
+[`inventory.py`](inventory.py) checks a candidate roster manifest against consumed roster manifests before any
+optional quality batch is registered. A future private adapter may convert registrations into roster manifests;
+registration handling is not part of this public CLI. It compares event groups and staged input digests, so renaming
+a case or group cannot hide reused prediction inputs. The audit reports deterministic JSON with
+counts by domain and target type; missing or malformed data is an error, never an eligible result.
+The audit reads the authoritative minimums and target-type allowlist from
+[`acceptance-policy.json`](acceptance-policy.json): 60 event groups, three domains, 20 groups per
+domain/stratum, and at least 20 groups for each of classification, regression, and ranking. Run it
+with:
+
+```bash
+python -m baselines.evaluation inventory \
+  --candidate $PRIVATE_EVALUATION_DIR/candidate-manifest.json \
+  --consumed $PRIVATE_EVALUATION_DIR/used-manifest.json \
+  --out $PRIVATE_EVALUATION_DIR/inventory-audit.json
+```
+
+Exit status `0` means `eligible: true`; status `1` means a valid audit found overlap or a policy
+minimum failure; status `2` means the audit could not parse or validate its inputs. The command does
+not register a batch and does not call the confirmation sealing flow. Keep private rosters and audit
+outputs outside public worktrees.

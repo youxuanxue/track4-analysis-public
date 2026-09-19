@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import io
 import json
-from http.client import BadStatusLine, IncompleteRead
 from copy import deepcopy
 from dataclasses import replace
+from http.client import BadStatusLine, IncompleteRead
 
 import pytest
 
@@ -16,7 +16,6 @@ from baselines.strong_rag_baseline.config import Config
 from baselines.strong_rag_baseline.indexer import Chunk, IndexedCorpus
 from baselines.strong_rag_baseline.prompts import build_user_prompt
 from baselines.strong_rag_baseline.retriever import BM25Index
-
 
 TEXT = "Acme forecasts revenue growth of 5 percent, with a range of 4 to 6 percent."
 
@@ -242,6 +241,106 @@ def test_prompt_includes_target_units_domain_and_resolution():
     assert "TARGET UNIT: probability" in prompt
     assert "RESOLUTION DATE: 2024-12-31" in prompt
     assert "TARGET DOMAIN: minimum=0.0, maximum=1.0" in prompt
+
+
+def test_rate_change_prompt_distinguishes_level_from_basis_point_change():
+    prompt = build_user_prompt(
+        {
+            "prompt": "Predict the change in the policy rate by the next meeting.",
+            "target": {
+                "type": "regression",
+                "name": "policy_rate_change_bps",
+                "unit": "basis points change",
+            },
+            "cutoff_date": "2024-01-01",
+        },
+        {"entity_id": "FOMC"},
+        [],
+    )
+    assert "change in basis points" in prompt
+    assert "not the current rate level" in prompt
+    assert "projected level minus the current level" in prompt
+
+
+@pytest.mark.parametrize("target_type", ["classification", "regression", "ranking"])
+def test_change_bps_request_prompt_carries_complete_semantics_for_each_target_type(target_type):
+    entities = [
+        {"entity_id": "A", "name": "Alpha"},
+        {"entity_id": "B", "name": "Beta"},
+    ] if target_type == "ranking" else [{"entity_id": "A", "name": "Alpha"}]
+    task = {
+        "task_id": "synthetic-bps-request",
+        "cutoff_date": "2024-01-31",
+        "prompt": "Predict the policy-rate change by the next meeting.",
+        "target": {
+            "type": target_type,
+            "name": "policy_rate_change_bps",
+            "unit": "basis points change",
+            **({"labels": ["up", "down"]} if target_type == "classification" else {}),
+        },
+        "entities": entities,
+        "interval_level": 0.9,
+    }
+    chunks = []
+    for entity in entities:
+        text = f"{entity['name']}: the current level is 3.59 percent and the projected level is 3.84 percent."
+        chunks.append(Chunk(entity["entity_id"], "2024-01-01", 0, len(text), text))
+    corpus = IndexedCorpus(
+        chunks,
+        {chunk.doc_id: chunk.text for chunk in chunks},
+        {chunk.doc_id: chunk.doc_date for chunk in chunks},
+    )
+    index = BM25Index(chunks, task["cutoff_date"])
+    prompts = []
+    current = {"entity": entities[0]}
+    text_by_id = {chunk.doc_id: chunk.text for chunk in chunks}
+
+    def reply(_system, user):
+        prompts.append(user)
+        doc_id = current["entity"]["entity_id"]
+        return json.dumps({
+            "label": "up" if target_type == "classification" else None,
+            "point_forecast": 25.0,
+            "interval": {"level": 0.9, "lo": 0.0, "hi": 50.0},
+            "evidence": [{"doc_id": doc_id, "quote": text_by_id[doc_id], "claim": text_by_id[doc_id]}],
+        })
+
+    for entity in entities:
+        current["entity"] = entity
+        agent.run_entity(task, entity, index, corpus, MockModelClient(reply), 5)
+
+    assert len(prompts) == len(entities)
+    for prompt in prompts:
+        assert "current level and the projected level" in prompt
+        assert "projected level minus the current level" in prompt
+        assert "in basis points" in prompt
+
+
+def test_non_change_bps_request_prompt_omits_change_semantics():
+    task = {
+        "task_id": "synthetic-level-request",
+        "cutoff_date": "2024-01-31",
+        "prompt": "Predict the policy-rate level at the next meeting.",
+        "target": {"type": "regression", "name": "policy_rate", "unit": "percent"},
+        "entities": [{"entity_id": "A", "name": "Alpha"}],
+        "interval_level": 0.9,
+    }
+    text = "Alpha: the policy rate is 3.59 percent."
+    chunk = Chunk("A", "2024-01-01", 0, len(text), text)
+    corpus = IndexedCorpus([chunk], {"A": text}, {"A": "2024-01-01"})
+    prompts = []
+
+    def reply(_system, user):
+        prompts.append(user)
+        return json.dumps({
+            "point_forecast": 3.59,
+            "interval": {"level": 0.9, "lo": 3.0, "hi": 4.0},
+            "evidence": [{"doc_id": "A", "quote": text, "claim": text}],
+        })
+
+    agent.run_entity(task, task["entities"][0], BM25Index([chunk], task["cutoff_date"]), corpus, MockModelClient(reply), 5)
+    assert len(prompts) == 1
+    assert "TARGET SEMANTICS:" not in prompts[0]
 
 
 def test_http_house_endpoint_honors_model_seed_and_auth(monkeypatch):

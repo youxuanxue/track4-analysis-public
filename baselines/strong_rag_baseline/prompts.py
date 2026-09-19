@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import json
 
-from .indexer import Chunk
 from .evidence import evidence_references
+from .indexer import Chunk
 from .quantities import TargetSpec
 from .tables import summary_columns, table_summaries
 
@@ -117,6 +117,12 @@ def build_user_prompt(task: dict, entity: dict, retrieved: list[Chunk]) -> str:
     if spec.mode == "probability":
         lines.append(
             "Predict the probability of the target event on the 0 to 1 scale, not confidence in your selected label."
+        )
+    if spec.mode == "change_bps":
+        lines.append(
+            "TARGET SEMANTICS: use both the current level and the projected level; predict the change in basis points, "
+            "not the current rate level. When both levels are available, calculate projected level minus the current "
+            "level and report that difference in basis points."
         )
     level = spec.level
 

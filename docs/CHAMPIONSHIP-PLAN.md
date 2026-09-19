@@ -9,20 +9,24 @@ G3 work is split into **G3-local** (disjoint quality rechecks via ordinary
 `batch`; team-owned; does not flip toolkit G3) and **G3-official** (the
 `confirmations` path: approved production NLI judge, dual batches, runtime
 equivalence, artifact eligibility; organiser-bound and often UNMEASURED until
-specs ship). The hosted leaderboard track is parallel to this ladder, not gated
-on full G3=PASS.
+specs ship). As of the 2026-09-18 ruling (issue #8, final), Track 4 is
+API-only against the House model: no BYO, LoRA, adapters, or participant model
+weights, so every candidate is an API-mode agent. The hosted leaderboard track
+is parallel to this ladder, not gated on full G3=PASS.
 
 # Track 4 夺冠路径与迭代验收计划
 
 ## 1. 当前状态与规则来源
 
-执行检查点（2026-09-18）：**内部 goal 仍为 `BLOCKED` 于完整 G3**，但 G1/G2 已在私有密封验收上实测通过（容器工程门 + 含 classification/regression/ranking 分层的质量门）。G3 整体仍为 `UNMEASURED`：缺互不重叠的确认批、获准生产 judge，以及运行等价/工件资格合同。`decision` 在单批 G2 通过后仍可为 `KEEP_INCUMBENT`（政策要求 `confirmation_batches = 2`）。托管 Development 提交与本地晋级阶梯并行，不以完整 G3=PASS 为再提交前置。
+执行检查点（2026-09-18 复核）：**内部 goal 仍为 `BLOCKED` 于完整 G3**。G3 整体仍为 `UNMEASURED`：缺互不重叠的确认批、获准生产 judge，以及运行等价/工件资格合同。`decision` 在单批 G2 通过后仍可为 `KEEP_INCUMBENT`（政策要求 `confirmation_batches = 2`）。托管 Development 提交与本地晋级阶梯并行，不以完整 G3=PASS 为再提交前置。
+
+同日裁定（issue #8，已关闭，组织方明示「will not be reopened」）：**Track 4 全程仅 `category = "api"`**——官方评测只走 House 模型（`MODEL_ENDPOINT` + `/v1`，bearer `MODEL_TOKEN`），无 fine-tuning、LoRA、adapter 或任何参赛方语言模型权重；toolkit 2.4.3 起 descriptor 不再接受 `byo-*`。当前公开操作性验证统一 pin v2.4.3（提交命令与该 tag 对齐）；历史 2.4.2 记录保持不可变，并不得与新环境结果混用。ARTIFACT-POLICY 允许的非语言模型本地数值工件不受此裁定影响。
 
 当前缺口按能否本地推进拆分：
 
 | 缺口 | 归属 | 说明 |
 | --- | --- | --- |
-| 互不重叠的确认事件库存 | **G3-local**（质量复测）/ 日后 **G3-official** | r8 类验收批已消耗一组密封事件；不得换皮重用。无生产 judge 时只用普通 `batch` 复测 |
+| 互不重叠的确认事件库存 | **G3-local**（质量复测）/ 日后 **G3-official** | 尚无可公开验证的新鲜且不相交库存；不得换皮重用。无生产 judge 时只用普通 `batch` 复测 |
 | 获准生产 NLI judge / pins | **G3-official** | 官方规格未公布前，`production_faithfulness` 保持 UNMEASURED |
 | 运行等价性、工件合规 | **G3-official** | 证据合同未落地前不得自证 PASS |
 | 托管榜分数与弱 unit | **赛题主线** | 与内部 G3 并行，不互相阻塞 |
@@ -34,11 +38,19 @@ on full G3=PASS.
 | 权威来源 | 用途 |
 | --- | --- |
 | [官方评分实现](../qfbench2_track_analysis/)、[toolkit 安装说明](../README.md) | 固定评分器与共享 toolkit 源码身份，禁止改评分数学提高结果 |
-| [提交合同](../SUBMISSION_CLI.md)、[训练政策](TRAINING-POLICY.md) | 核对运行资源、模型/adapter 类别、cutoff 和来源证明 |
-| [生产 judge 答复](https://github.com/Agenthon-2026/track4-analysis-public/issues/1#issuecomment-5630517228) | 最近核查的答复仍未公布生产规格；本地 smoke/Development 不在生产评分尺度 |
-| [训练工件讨论](https://github.com/Agenthon-2026/track4-analysis-public/issues/8)、[发布节奏](https://github.com/Agenthon-2026/track4-analysis-public/issues/2) | 核对未决许可及正式版本公告，不凭旧评论推断规则已落地 |
+| [提交合同](../SUBMISSION_CLI.md)、[训练政策](TRAINING-POLICY.md) | 核对运行资源、cutoff 和来源证明；模型类别以 issue #8 裁定为准（API-only，不再分 byo-*） |
+| [生产 judge 答复](https://github.com/Agenthon-2026/track4-analysis-public/issues/1#issuecomment-5630517228) | 最近核查（2026-09-16）仍未公布生产规格；本地 smoke/Development 不在生产评分尺度 |
+| [模型使用裁定](https://github.com/Agenthon-2026/track4-analysis-public/issues/8)（2026-09-18 关闭） | API-only 为最终政策：淘汰 BYO/LoRA/adapter 路径；候选范围只含 prompts/harness 与 ARTIFACT-POLICY 允许的本地数值工件 |
+| [发布节奏](https://github.com/Agenthon-2026/track4-analysis-public/issues/2) | 核对正式版本公告（当前最新裁定：House route `/v1` 更正、toolkit 2.4.3），不凭旧评论推断规则已落地 |
 
 术语见 [CONCEPTS.md](CONCEPTS.md)。incumbent 是当前保留版本，candidate 是待验收版本；晋级仅指内部更换版本。
+
+API-only 裁定对本计划的实际影响：
+
+- **候选空间收窄**：一切候选必须是 API 模式 agent（prompts、harness、检索与本地数值工件）。任何以 BYO/LoRA/adapter 为前提的在研分支、训练计划和验收安排即刻终止，不再消耗轮次预算。
+- **工件资格简化**：G3-official 的 `artifact_eligibility` 不再涉及 adapter/权重审查；仍须核验非语言模型数值工件的许可、cutoff 与披露。
+- **选优变量转移**：质量增益只能来自检索质量、提示与推理编排、校准和区间策略；迭代假设围绕这些变量提出。
+- **toolkit 版本**：提交侧按组织方要求跟进 2.4.3；本地评分器 pin 变更时，对冻结对照在同一新环境重跑双方，不沿用旧环境结果。
 
 ## 2. 验收目标
 
@@ -128,6 +140,20 @@ flowchart TD
 4. **赛题主线（并行）**：托管提交、弱 unit 与合同合规；不以完整 G3=PASS 为闸门。
 
 没有可推进事项时记录真实阻塞，停止重复探测失败入口或追加无验收需求的工程。连续同类失败按会话纪律暂停分析，不以放宽政策、重跑或改分组制造成功。
+
+## 5.1 下阶段可达目标（自 2026-09-19 起）
+
+只列无需官方新规格即可推进、且完成条件可核验的目标；G3-official 不在其中（仍 UNMEASURED，等生产 judge 规格）。每条按 §5 的轮次与预算纪律登记执行。
+
+| # | 目标 | 可达依据 | 可核验完成条件 |
+| --- | --- | --- | --- |
+| N1 | **终止 BYO 残留工作并回收预算**：关闭一切以 LoRA/adapter/自备权重为前提的在研分支、数据拟合与验收安排 | issue #8 裁定为最终政策 | 登记的轮次预算中无 BYO 前提项；候选清单全部为 API 模式；私有工件说明重算候选适用范围 |
+| N2 | **toolkit 2.4.3 迁移演练（部分完成）**：公开 pin 与 API descriptor 已迁移；冻结 before/after 的同环境等价性仍 BLOCKED | 2.4.3 已发布且 descriptor 拒收 `byo-*` | 公开 pin 测试、unit validation、descriptor parse/reject 已通过；在冻结对照不可用前，不宣称 2.4.2/2.4.3 等价或晋级 |
+| N3 | **赛题主线迭代一轮（候选门 FAIL）**：已完成 diagnostics 与 `change_bps` 单变量提示实验；真实模型 before/after rejection reduction 未测得 | House-compatible stub 可验证接口，但不能替代真实 House measurement | 保留 hosted incumbent；未达到真实改进门前不构建/推送新候选、不消耗 Development 上传额度 |
+| N4 | **G3-local 质量复测一批（库存 BLOCKED）**：fail-closed 审计工具已完成；在取得足够新鲜事件前不注册 batch | 队伍自有数据通道，不依赖生产 judge | 新库存必须与已消费事件零交集且满足政策 minima；当前只记录 BLOCKED，不调用 `confirmations.seal`，不翻总 G3 |
+| N5 | **每周一次官方信号核查**：周三更新帖（issue #2）与 issue #1 的生产 judge 规格 | 组织方公布节奏为每周三 | 每次核查留痕（日期、结论）；出现生产 judge 规格即按 §5 第 3 条恢复 G3-official；无新信息不追加探测 |
+
+明确不做：不自证 G3=PASS、不以 smoke 忠实度冒充生产 NLI、不新增无验收需求的工程、不按结果降低 `acceptance-policy.json` 门槛。
 
 ## 6. 完成定义
 
