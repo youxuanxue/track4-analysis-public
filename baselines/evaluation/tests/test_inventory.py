@@ -161,6 +161,32 @@ def test_cli_accepts_multiple_consumed_manifests(tmp_path, capsys):
     assert output["overlap"] == {"groups": [], "input_digests": []}
 
 
+def test_consumed_manifests_group_overlap_is_rejected(tmp_path):
+    candidate = make_case(tmp_path, "candidate", group="candidate", domain="d", target_type="classification")
+    first = make_case(tmp_path, "first", group="shared", domain="d", target_type="classification")
+    second = make_case(tmp_path, "second", group="shared", domain="d", target_type="classification")
+    result = inventory.audit(
+        write_roster(tmp_path / "candidate.json", [candidate]),
+        [write_roster(tmp_path / "first.json", [first]), write_roster(tmp_path / "second.json", [second])],
+        policy=synthetic_policy(),
+    )
+    assert result["overlap"]["groups"] == ["shared"]
+    assert result["eligible"] is False
+
+
+def test_consumed_manifests_renamed_identical_input_is_rejected(tmp_path):
+    first = make_case(tmp_path, "first", group="first", domain="d", target_type="classification")
+    second = make_case(tmp_path, "second", group="second", domain="d", target_type="classification")
+    first["unit_dir"] = second["unit_dir"]
+    result = inventory.audit(
+        write_roster(tmp_path / "candidate.json", [make_case(tmp_path, "candidate", group="candidate", domain="d", target_type="classification")]),
+        [write_roster(tmp_path / "first.json", [first]), write_roster(tmp_path / "second.json", [second])],
+        policy=synthetic_policy(),
+    )
+    assert result["overlap"]["input_digests"]
+    assert result["eligible"] is False
+
+
 def test_candidate_group_overlap_with_second_consumed_is_rejected(tmp_path):
     candidate = make_case(tmp_path, "candidate", group="shared", domain="d", target_type="classification")
     first = make_case(tmp_path, "first", group="first", domain="d", target_type="classification")

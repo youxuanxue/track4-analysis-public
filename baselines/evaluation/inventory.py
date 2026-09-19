@@ -105,15 +105,24 @@ def _validate_rows(rows: list[dict], source: Path, policy: dict) -> list[dict]:
 def audit(candidate: Path, consumed: list[Path], *, policy: dict | None = None) -> dict:
     policy = load_policy() if policy is None else policy
     candidate_rows = _validate_rows(_roster_rows(candidate), candidate, policy)
-    consumed_rows = []
+    consumed_sets = []
     for path in consumed:
-        consumed_rows.extend(_validate_rows(_roster_rows(path), path, policy))
-    all_rows = _validate_rows(candidate_rows + consumed_rows, Path("candidate+consumed"), policy)
+        consumed_sets.append(_validate_rows(_roster_rows(path), path, policy))
+    consumed_rows = [row for rows in consumed_sets for row in rows]
+    _validate_rows(candidate_rows + consumed_rows, Path("candidate+consumed"), policy)
 
+    manifest_rows = [candidate_rows, *consumed_sets]
+    group_manifests: dict[str, set[int]] = defaultdict(set)
+    input_manifests: dict[str, set[int]] = defaultdict(set)
+    for index, rows in enumerate(manifest_rows):
+        for row in rows:
+            group_manifests[row["group"]].add(index)
+            input_manifests[row["input_digest"]].add(index)
+    overlap = {
+        "groups": sorted(key for key, owners in group_manifests.items() if len(owners) > 1),
+        "input_digests": sorted(key for key, owners in input_manifests.items() if len(owners) > 1),
+    }
     candidate_groups = {row["group"] for row in candidate_rows}
-    consumed_groups = {row["group"] for row in consumed_rows}
-    candidate_inputs = {row["input_digest"] for row in candidate_rows}
-    consumed_inputs = {row["input_digest"] for row in consumed_rows}
     domains: dict[str, set[str]] = defaultdict(set)
     target_types: dict[str, set[str]] = defaultdict(set)
     for row in candidate_rows:
@@ -132,10 +141,6 @@ def audit(candidate: Path, consumed: list[Path], *, policy: dict | None = None) 
         failures.append("target_types")
     if any(len(target_types.get(kind, set())) < policy["min_groups_per_target_type"] for kind in policy["target_types"]):
         failures.append("groups_per_target_type")
-    overlap = {
-        "groups": sorted(candidate_groups & consumed_groups),
-        "input_digests": sorted(candidate_inputs & consumed_inputs),
-    }
     eligible = not failures and not overlap["groups"] and not overlap["input_digests"]
     return {
         "schema_version": 1,

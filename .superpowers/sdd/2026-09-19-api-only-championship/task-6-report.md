@@ -34,6 +34,14 @@ The repair removes caller-supplied `expected_runs` records, reads the authoritat
 Repair verification:
 
 - `.venv/bin/python -m pytest baselines/evaluation/tests/test_inventory.py -q` — 19 passed.
-- `.venv/bin/python -m pytest baselines/evaluation -q` — 166 passed, 18 skipped.
+- `.venv/bin/python -m pytest baselines/evaluation -q` — 168 passed, 18 skipped.
 - `.venv/bin/python -m pytest baselines/tests/test_units_carry_no_answer_material.py -q` — 4 passed.
 - Temporary installation of `qfbench2-common==2.4.3` was attempted via the configured package index; the package is unavailable in this environment, so `scoring/ faithfulness/` remains blocked at collection with `ModuleNotFoundError: qfbench2_common`.
+
+## Follow-up scoped repair
+
+Disjointness now uses manifest ownership sets over the candidate and every distinct consumed manifest. A group or staged input digest appearing in any two manifests is reported as overlap, including consumed-vs-consumed collisions. Added tests cover consumed A/B group overlap, renamed identical input digest overlap, and the strengthened multiple-consumed union path. Policy, global identity/mapping validation, CLI statuses, and the no-`expected_runs` boundary are unchanged.
+
+- `.venv/bin/python -m pytest baselines/evaluation/tests/test_inventory.py -q` — 21 passed.
+- `.venv/bin/python -m pytest baselines/evaluation -q` — 168 passed, 18 skipped.
+- `.venv/bin/python -m pytest baselines/tests/test_units_carry_no_answer_material.py -q` — 4 passed.
