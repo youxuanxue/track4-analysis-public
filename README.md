@@ -188,24 +188,19 @@ proxy, where every connection is logged and becomes the audit artifact for verif
 calls; this is enforced by rule and audit. Data/text cutoffs are unchanged and still enforced by
 the harness (`g2`).
 
-**Development availability.** The initial Development opening is planned for House/API submissions. BYO adapter serving is planned for a later opening, with a separate availability announcement. The published BYO adapter eligibility and descriptor categories remain valid. This page is not an opening announcement.
+**Development availability.** Track 4 uses the House endpoint and `category = "api"`. This page
+is not an opening announcement.
 
-**Two modes, one contract.**
+**One API-only contract.** Your agent calls the organizer-hosted model endpoint
+(`$MODEL_ENDPOINT`); your contribution is the prompts, harness, system prompts, agents and
+permitted local numerical artifacts. No participant API keys are injected and none exist (policy
+2026-08-04) — the House endpoint is the only reachable model. Participant-provided language-model
+weights, fine-tuning, LoRA, adapters and participant-run model servers are not Track 4 submission
+paths. Developer-only local model diagnostics are permitted for testing but are not submission
+paths.
 
-1. **API mode** (`category = "api"`): your agent calls the organizer-hosted model endpoint
-   (`$MODEL_ENDPOINT`); your contribution is the prompts, harness, system prompts, agents and permitted local numerical artifacts.
-   No participant API keys are injected and none exist (policy 2026-08-04) — the house endpoint
-   is the only reachable model.
-2. **BYO mode** (`category = "byo-large"` or `"byo-small"`, retained as legacy names): ship
-   one LoRA adapter, rank ≤ 64, for the organizer-served base model. Full model weights,
-   full fine-tuning, and a submission-run model server are not permitted. Your code calls the
-   supplied `MODEL_ENDPOINT` with `MODEL_NAME`, which names your adapter for that run.
-   See [adapter-only BYO](SUBMISSION_CLI.md#adapter-only-byo) for packaging and serving rules.
-
-The [descriptor guide](https://github.com/Agenthon-2026/Agenthon2026-public/blob/main/starter-packs/track4/SUBMISSION-DESCRIPTOR.md)
-also permits a model-free deterministic declaration using legacy `byo-small` and `models: []`
-with toolkit tag `v2.4.0` (C5 1.1.0). Do not invent a placeholder model entry.
-An agent that calls the house endpoint uses `api` and declares the actual model.
+Use `category = "api"` and declare the organizer-supplied model as required by the
+[descriptor guide](https://github.com/Agenthon-2026/Agenthon2026-public/blob/main/starter-packs/track4/SUBMISSION-DESCRIPTOR.md).
 
 At scoring time the container sees: `HTTP_PROXY`/`HTTPS_PROXY` pointing at the audited proxy,
 `MODEL_ENDPOINT` set to the origin of the organizer-hosted House route (e.g. `http://model:8443`,
@@ -216,21 +211,22 @@ Local smoke runs
 without the eval network fall back to `--network=none`, so your agent must degrade gracefully
 (still emit a schema-valid `answer.json`) when model APIs are unreachable.
 
-**Local numerical artifacts.** The [Track 4 artifact policy](docs/ARTIFACT-POLICY.md) defines permitted non-neural models, calibration parameters and corpus-only retrieval assets, with disclosure and cutoff requirements. It does not authorize additional neural checkpoints or establish BYO service availability.
+**Local numerical artifacts.** The [Track 4 artifact policy](docs/ARTIFACT-POLICY.md) defines
+permitted non-neural models, calibration parameters and corpus-only retrieval assets, with
+disclosure and cutoff requirements. It does not authorize participant-provided neural checkpoints.
 
 **Offline training.** The [Track 4 training policy](docs/TRAINING-POLICY.md) permits eligible
-external training data within the existing artifact categories, requires cutoff-aware fitting,
-selection and calibration, and defines the narrow exception for approved Nemotron base
-pretraining. Evaluation inputs and citations stay within the official task and frozen corpus.
+external training data within the existing non-neural artifact categories and requires
+cutoff-aware fitting, selection and calibration. Evaluation inputs and citations stay within the
+official task and frozen corpus.
 
-**Reproducibility.** Model versions must be pinned (dated snapshots), the training cutoff of
-every model must be disclosed in submission metadata, and temperature/seed pinned where the API
-supports it. API-based entries are verified statistically (bootstrap-CI overlap on rerun); BYO
-entries bit-reproducibly.
+**Reproducibility.** The organizer-supplied model version is pinned, its training cutoff is
+disclosed in submission metadata, and temperature/seed are pinned where the API supports them.
+API entries are verified statistically (bootstrap-CI overlap on rerun).
 
 **House API allocation.** See the [model-API rules](SUBMISSION_CLI.md#rules-for-model-api-use-restricted-mode)
 for the allowance of 1,000,000 input tokens per unit, selected House request limits, and
-accounting for failed or retried requests. These House limits do not define a BYO request limit. Platform availability and deployed enforcement will be
+accounting for failed or retried requests. Platform availability and deployed enforcement will be
 announced separately.
 
 **Leaderboard.** One board; every entry is tagged with its category, models used (pinned
@@ -495,8 +491,8 @@ organizer's audited proxy to the organizer-hosted `$MODEL_ENDPOINT` and nothing 
 vendor model APIs are refused. Retrieval indices, dependencies, and other permitted resources
 must be baked into the Docker image or available from the read-only corpus
 mount. Vendor-side tools (web search, code execution, retrieval) must be disabled in API calls.
-BYO model submissions follow the [adapter-only contract](SUBMISSION_CLI.md#adapter-only-byo).
-Test locally with `docker run --network=none` before submitting to confirm your agent has no
+Participant-provided language-model weights and model servers are not submission paths. Test
+locally with `docker run --network=none` before submitting to confirm your agent has no
 open-internet dependency and degrades gracefully when model APIs are unreachable.
 
 ## Competition schedule and submission limits

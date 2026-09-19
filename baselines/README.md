@@ -71,9 +71,9 @@ composite score: ineligible.
    frozen corpus using hybrid BM25 + dense retrieval (BAAI/bge-m3 or equivalent).
 2. Passes the top-K retrieved passages plus the entity's tabular features to an LLM with a
    structured prompt. In official scoring, the reader calls the organizer-hosted
-   `$MODEL_ENDPOINT` with the supplied `$MODEL_NAME`. BYO means one LoRA adapter on the
-   organizer's base, not a bundled reader checkpoint or a model server. Vendor model APIs
-   are not permitted. See [adapter-only BYO](../SUBMISSION_CLI.md#adapter-only-byo).
+   `$MODEL_ENDPOINT` with the supplied `$MODEL_NAME`. Track 4 is API-only: participant-provided
+   language-model weights, fine-tuning, LoRA, adapters, participant-run model servers and vendor
+   model APIs are not submission paths.
 3. Generates a prediction (label or numeric estimate), a claim sentence, and a citation for each
    material statement.
 4. A **calibration head** (a small quantile regression model) converts the LLM's raw confidence
@@ -218,9 +218,9 @@ filter is not the same as being eligible.
 
 ## Open-weights references for offline experiments
 
-The model list below supports offline experiments and local checks. The reader alternatives
-are not models you may bundle for official BYO scoring; that path follows the
-[adapter-only contract](../SUBMISSION_CLI.md#adapter-only-byo).
+The model list below supports developer-only offline experiments and local checks. Reader and
+judge weights listed here are not submission artifacts; official scoring uses the organizer House
+endpoint.
 
 | Role | Model | Licence | Notes |
 |------|-------|---------|-------|
@@ -239,8 +239,8 @@ uniformly MIT.
 Cache the weights needed for offline experiments and local judge checks before running them.
 Official scoring cannot fetch HuggingFace Hub weights: those domains are outside the restricted
 network allowlist, and `TRANSFORMERS_OFFLINE=1` is set in the scoring environment. The official
-reader uses the organizer endpoint. Declare pinned model and adapter versions and their training
-cutoffs as required by [the submission contract](../SUBMISSION_CLI.md#rules-for-model-api-use-restricted-mode).
+reader uses the organizer endpoint. The organizer-supplied model version and training cutoff are
+disclosed as required by [the submission contract](../SUBMISSION_CLI.md#rules-for-model-api-use-restricted-mode).
 
 ---
 
@@ -335,16 +335,12 @@ Before submitting your Docker image, verify every item:
   for a local CLI check. Validate endpoint access separately with the official harness.
   Neither check proves production NLI admission or prediction quality.
 
-Submission categories follow the organizer's
-[BYO starter pack](https://github.com/Agenthon-2026/Agenthon2026-public/blob/main/starter-packs/track4/AGENTS.md#bringing-your-own-model-adapter-only-rank--64)
-and [descriptor guide](https://github.com/Agenthon-2026/Agenthon2026-public/blob/main/starter-packs/track4/SUBMISSION-DESCRIPTOR.md).
-The default house-endpoint path is `api`. Official BYO supplies one LoRA adapter, rank at most 64,
-for the organizer-hosted Nemotron base; the organizer extracts it and starts the server.
-Participants use the supplied endpoint and model name, and do not start vLLM themselves.
-Packaging and serving are now aligned in the [local submission contract](../SUBMISSION_CLI.md#adapter-only-byo).
-A submission using no model declares `models: []` under C5 1.1.0 in toolkit tag `v2.4.0`;
-the documented category remains legacy `byo-small`. Do not invent a placeholder model entry.
-`--local-llama` remains a development experiment only.
+Track 4 submissions follow the organizer's
+[descriptor guide](https://github.com/Agenthon-2026/Agenthon2026-public/blob/main/starter-packs/track4/SUBMISSION-DESCRIPTOR.md)
+and use `category = "api"` with the supplied House endpoint and model name. Participant-provided
+language-model weights, fine-tuning, LoRA, adapters and participant-run model servers are not
+submission paths. `--local-llama` remains a developer-only experiment and is not packaged or
+declared for submission.
 
 ---
 

@@ -87,19 +87,13 @@ Runtime retrieval, timeout, retry, seed and token settings are defined in
 `MODEL_ENDPOINT` and `MODEL_NAME`. Development overrides should not replace the model identity
 provided by the harness.
 
-## Official Submission Categories
+## Official submission category
 
-Use `api` when calling the house endpoint. The organizer's
-[BYO starter-pack contract](https://github.com/Agenthon-2026/Agenthon2026-public/blob/main/starter-packs/track4/AGENTS.md#bringing-your-own-model-adapter-only-rank--64)
-describes one LoRA adapter, rank at most 64, on the organizer-hosted Nemotron base. The organizer
-extracts the adapter, starts the model server, and supplies the same endpoint contract; the
-participant image does not start vLLM or ship full reader weights. This supersedes the older
-full-weights description still present in `SUBMISSION_CLI.md`.
-
-The [descriptor guide](https://github.com/Agenthon-2026/Agenthon2026-public/blob/main/starter-packs/track4/SUBMISSION-DESCRIPTOR.md)
-also documents a model-free deterministic declaration using the legacy `byo-small` category
-and `models: []` (C5 1.1.0, toolkit tag `v2.4.0`). Use it only when no model is used;
-do not invent a placeholder model entry. This baseline's default endpoint path is an `api` entry.
+Track 4 uses `category = "api"` and the organizer House endpoint. This baseline's default endpoint
+path follows that contract. Participant-provided language-model weights, fine-tuning, LoRA,
+adapters and participant-run model servers are not submission paths. The optional local GGUF mode
+above is developer-only diagnostic tooling and must not be packaged or declared as a submission
+model.
 
 ## Design
 
@@ -160,7 +154,7 @@ run. It counts each attempt before I/O, including failed, truncated and retried
 requests; after exhaustion, later entities use the grounded fallback without more
 HTTP calls. [Config](config.py) owns the conservative request/output ceilings and
 clamps environment output settings to the selected House limit. Those ceilings
-are not a claim about the organiser's still-pending BYO or input accounting.
+are not a claim about organizer-side input accounting.
 
 Optional diagnostics include a bounded request ledger: sequence, status, byte
 count, timing and request digest. Provider-reported token counts are recorded when

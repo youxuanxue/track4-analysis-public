@@ -573,3 +573,60 @@ def test_submission_doc_guard_catches_the_previous_contracts() -> None:
     assert not _retired_submission_contracts(
         "The organizer serves the adapter. The agent calls `$MODEL_ENDPOINT` with `$MODEL_NAME`."
     )
+
+
+_API_ONLY_DOCS = [
+    "README.md",
+    "SUBMISSION_CLI.md",
+    "docs/TRAINING-POLICY.md",
+    "docs/ARTIFACT-POLICY.md",
+    "baselines/README.md",
+    "baselines/strong_rag_baseline/README.md",
+]
+_AFFIRMATIVE_NON_API_PATHS = [
+    re.compile(r"category\s*=\s*[\"']byo-(?:small|large)[\"']", re.I),
+    re.compile(r"(?:ship|package|bundle|submit|supply)\b[^.\n]{0,80}\bLoRA\s+adapter\b", re.I),
+    re.compile(r"\badapter(?:_model\.safetensors|_config\.json)\b", re.I),
+    re.compile(
+        r"(?:ship|package|bundle|submit|supply|provide)\b[^.\n]{0,80}"
+        r"\b(?:full\s+)?(?:language[- ]model|model)\s+weights\b",
+        re.I,
+    ),
+]
+
+
+def _affirmative_non_api_paths(text: str) -> list[str]:
+    return [
+        match.group(0)
+        for pattern in _AFFIRMATIVE_NON_API_PATHS
+        for match in pattern.finditer(text)
+    ]
+
+
+def test_track4_contract_docs_do_not_offer_non_api_submission_paths() -> None:
+    _require(_API_ONLY_DOCS, "API-only contract document(s)")
+    offenders = []
+    for relative in _API_ONLY_DOCS:
+        text = (REPO / relative).read_text(encoding="utf-8")
+        for match in _affirmative_non_api_paths(text):
+            offenders.append(f"{relative}: {match}")
+    assert not offenders, (
+        "Track 4 is API-only; active contract prose must not offer BYO categories, adapter "
+        "packaging, or participant-provided language-model weights:\n"
+        + "\n".join(offenders)
+    )
+
+
+def test_api_only_guard_catches_affirmative_non_api_contracts() -> None:
+    for prohibited in (
+        'Use category = "byo-small" for a deterministic submission.',
+        'Select category = "byo-large" for the larger tier.',
+        "Ship one LoRA adapter with your agent.",
+        "Package adapter_model.safetensors and adapter_config.json in the image.",
+        "Participants may bundle language-model weights in the image.",
+    ):
+        assert _affirmative_non_api_paths(prohibited), prohibited
+    assert not _affirmative_non_api_paths(
+        "Track 4 does not accept BYO categories, adapter packaging, or participant-provided "
+        "language-model weights. Developer-local diagnostics are not submission paths."
+    )

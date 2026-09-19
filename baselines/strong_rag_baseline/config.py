@@ -16,7 +16,7 @@ from .local_server import (
 
 
 # Selected House allowance in the organiser SUBMISSION_CLI contract, 2026-09-15.
-# Also a conservative local/BYO ceiling; it does not claim a BYO entitlement.
+# Also a conservative developer-local ceiling; local diagnostics are not submission paths.
 HOUSE_MAX_REQUESTS = 25
 HOUSE_MAX_OUTPUT_TOKENS = 4000
 
