@@ -367,3 +367,24 @@ original reports, receipts, both roles' production faithfulness and every batch'
 a pooled average cannot hide a failed batch. Organizer runtime equivalence and artifact eligibility
 remain UNMEASURED until their evidence contracts are implemented and satisfied. This audit does
 not declare a production candidate, deploy, submit or mark the overall goal complete.
+
+## Disjoint inventory audit
+
+[`inventory.py`](inventory.py) checks a candidate manifest against consumed manifests before any
+optional quality batch is registered. It compares event groups and staged input digests, so renaming
+a case or group cannot hide reused prediction inputs. The audit reports deterministic JSON with
+counts by domain and target type; missing or malformed data is an error, never an eligible result.
+The default policy requires three domains, two independent groups per domain, and two groups per
+target type. Run it with:
+
+```bash
+python -m baselines.evaluation inventory \
+  --candidate /private/evaluation/candidate-manifest.json \
+  --consumed /private/evaluation/used-manifest.json \
+  --out /private/evaluation/inventory-audit.json
+```
+
+Exit status `0` means `eligible: true`; status `1` means a valid audit found overlap or a policy
+minimum failure; status `2` means the audit could not parse or validate its inputs. The command does
+not register a batch and does not call the confirmation sealing flow. Keep private rosters and audit
+outputs outside public worktrees.

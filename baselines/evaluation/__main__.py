@@ -243,6 +243,11 @@ def evidence_ledger(stage: Path, *, model: bool = False) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    arguments = sys.argv[1:] if argv is None else argv
+    if arguments and arguments[0] == "inventory":
+        from .inventory import main as inventory_main
+
+        return inventory_main(arguments[1:])
     ap = argparse.ArgumentParser(description=__doc__)
     source = ap.add_mutually_exclusive_group(required=True)
     source.add_argument("--units", type=Path, help="Directory of public practice units")
@@ -259,7 +264,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--image", help="Run the grounded baseline in this local Docker image"
     )
-    args = ap.parse_args(argv)
+    args = ap.parse_args(arguments)
     if not 0 < args.timeout <= 600:
         ap.error("timeout must be in (0, 600] seconds")
     if len(set(args.seeds)) != len(args.seeds) or any(
