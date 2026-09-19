@@ -12,9 +12,6 @@ from .dataset import load_cases, stage_inputs
 
 REPO = Path(__file__).resolve().parents[2]
 POLICY_PATH = REPO / "baselines" / "evaluation" / "acceptance-policy.json"
-ALLOWED_TARGET_TYPES = {"classification", "regression", "ranking"}
-
-
 def load_policy(path: Path = POLICY_PATH) -> dict:
     data = json.loads(path.read_text(encoding="utf-8"))
     target_types = data.get("target_types")
@@ -45,7 +42,7 @@ def _roster_rows(path: Path) -> list[dict]:
     cases = load_cases(units=None, manifest=path)
     rows = []
     for case in cases:
-        with tempfile.TemporaryDirectory(prefix="t4-inventory-input-") as directory:
+        with tempfile.TemporaryDirectory(prefix="t4-analysis-inventory-input-") as directory:
             input_digest = stage_inputs(case.unit_dir, Path(directory) / "input")
         task = json.loads((case.unit_dir / "task.json").read_text(encoding="utf-8"))
         rows.append(
@@ -60,11 +57,14 @@ def _roster_rows(path: Path) -> list[dict]:
     return rows
 
 
-def _validate_rows(rows: list[dict], source: Path, policy: dict) -> list[dict]:
+def _validate_rows(
+    rows: list[dict], source: Path, policy: dict, *, reject_duplicate_input_digest: bool = True
+) -> list[dict]:
     required = {"case_id", "group", "domain", "target_type", "input_digest"}
     normalized = []
     identities: set[tuple[str, str]] = set()
     case_ids: set[str] = set()
+    input_digests: set[str] = set()
     groups: dict[str, tuple[str, str]] = {}
     for row in rows:
         if not isinstance(row, dict) or not required <= set(row):
@@ -84,6 +84,9 @@ def _validate_rows(rows: list[dict], source: Path, policy: dict) -> list[dict]:
             raise ValueError(f"{source}: duplicate case/group identity")
         identities.add(identity)
         case_ids.add(row["case_id"])
+        if reject_duplicate_input_digest and row["input_digest"] in input_digests:
+            raise ValueError(f"{source}: duplicate input_digest")
+        input_digests.add(row["input_digest"])
         mapping = (row["domain"], row["target_type"])
         if row["group"] in groups and groups[row["group"]] != mapping:
             raise ValueError(f"{source}: group maps inconsistently")
@@ -109,7 +112,12 @@ def audit(candidate: Path, consumed: list[Path], *, policy: dict | None = None) 
     for path in consumed:
         consumed_sets.append(_validate_rows(_roster_rows(path), path, policy))
     consumed_rows = [row for rows in consumed_sets for row in rows]
-    _validate_rows(candidate_rows + consumed_rows, Path("candidate+consumed"), policy)
+    _validate_rows(
+        candidate_rows + consumed_rows,
+        Path("candidate+consumed"),
+        policy,
+        reject_duplicate_input_digest=False,
+    )
 
     manifest_rows = [candidate_rows, *consumed_sets]
     group_manifests: dict[str, set[int]] = defaultdict(set)

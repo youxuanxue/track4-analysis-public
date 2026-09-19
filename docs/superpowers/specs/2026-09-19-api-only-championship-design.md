@@ -43,7 +43,7 @@ The candidate gate requires a clean commit, all public tests, all-unit smoke, of
 
 ## N4: disjoint G3-local inventory
 
-A generic audit compares candidate manifest event groups and input digests against one or more consumed manifests or registrations. Any overlap fails closed with a nonzero exit. The audit also checks the internal policy minima: at least 60 independent events, at least three domains with 20 events each, and at least 20 groups for each target type.
+A generic audit compares a candidate roster manifest's event groups and input digests against one or more consumed roster manifests. Any overlap fails closed with a nonzero exit. A future private adapter may convert registrations into roster manifests; registration handling is not part of this public CLI. The audit also checks the internal policy minima: at least 60 independent events, at least three domains with 20 events each, and at least 20 groups for each target type.
 
 If the private source audit does not produce a qualifying fresh manifest, N4 closes this iteration as `BLOCKED_INVENTORY` with an append-only private record. It must not invoke `confirmations.seal`, rename old groups, reinterpret seeds as events, or claim G3-local PASS.
 

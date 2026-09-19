@@ -137,7 +137,7 @@ This plan executes the approved N1–N4 design in isolated, reviewable tasks. It
 - Modify: `baselines/evaluation/README.md`
 
 **Interfaces:**
-- Consumes: candidate manifest and one or more consumed manifests/registrations.
+- Consumes: candidate roster manifest and one or more consumed roster manifests. A future private adapter may convert registrations into this format; registration handling is not part of this public CLI.
 - Produces: JSON audit with group overlap, input-digest overlap, per-domain counts, per-target-type counts, and `eligible` boolean; exits nonzero on overlap or policy-minimum failure.
 
 - [ ] Add failing tests for group overlap, renamed-but-identical input overlap, insufficient domains, insufficient per-domain groups, insufficient target-type groups, and a passing disjoint manifest.
@@ -145,14 +145,14 @@ This plan executes the approved N1–N4 design in isolated, reviewable tasks. It
 - [ ] Implement deterministic parsing and audit logic using existing manifest conventions; do not copy scoring math.
 - [ ] Add CLI wiring and document the exact command and exit semantics.
 - [ ] Run inventory tests and the complete evaluation test suite.
-- [ ] Audit the private proposed inventory against r8; if it is not eligible, create an append-only `BLOCKED_INVENTORY` record and do not register a batch.
+- [ ] Audit the proposed private inventory; if it is not eligible, create an append-only `BLOCKED_INVENTORY` record and do not register a batch.
 - [ ] If it is eligible, execute ordinary `batch register/run/decide` and retain all outputs privately.
 
 ### Task 7: Candidate gate and conditional hosted submission
 
 **Files:**
 - Public repository: no new private output files.
-- Private evidence: new candidate directory under `/Users/feng/Codes/challenge/agenthon2026/t4-evaluation/`.
+- Private evidence: new candidate directory under `$PRIVATE_EVALUATION_DIR/` (outside public worktrees).
 
 **Interfaces:**
 - Consumes: clean commit, Tasks 1–6 tests, candidate aggregate diagnostics, API descriptor.

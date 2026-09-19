@@ -328,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
                 output = args.out / case.case_id / f"seed-{seed}"
                 output.mkdir(parents=True)
                 started = time.monotonic()
-                with tempfile.TemporaryDirectory(prefix="t4-evaluation-input-") as temp:
+                with tempfile.TemporaryDirectory(prefix="t4-analysis-input-") as temp:
                     stage = Path(temp) / "input"
                     digest = stage_inputs(case.unit_dir, stage)
                     if (

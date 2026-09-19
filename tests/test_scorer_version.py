@@ -22,11 +22,12 @@ OPERATIONAL_TOOLKIT_FILES = (
     "baselines/requirements.txt",
     "faithfulness/judge.py",
     "docs/CHAMPIONSHIP-PLAN.md",
+    "pyproject.toml",
 )
 
 
 def _declared() -> str:
-    m = re.search(r'^version\s*=\s*"([^"]+)"', PYPROJECT.read_text(encoding="utf-8"), re.M)
+    m = re.search(r'^version\s*=\s*"([^"]+)"', PYPROJECT.read_text(encoding="utf-8"), re.MULTILINE)
     assert m, "pyproject.toml declares no version"
     return m.group(1)
 
@@ -66,6 +67,7 @@ def test_each_operational_surface_contains_an_explicit_243_pin():
         "baselines/requirements.txt": 'Agenthon2026-public.git@v2.4.3#subdirectory=common',
         "faithfulness/judge.py": 'Agenthon2026-public.git@v2.4.3#subdirectory=common',
         "docs/CHAMPIONSHIP-PLAN.md": "toolkit 2.4.3",
+        "pyproject.toml": "Agenthon2026-public.git@v2.4.3#subdirectory=common",
     }
     missing = [
         f"{relative}: {needle!r}"

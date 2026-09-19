@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -224,6 +225,19 @@ def test_consumed_manifests_duplicate_identity_is_rejected(tmp_path):
         inventory.audit(
             write_roster(tmp_path / "candidate.json", [make_case(tmp_path, "candidate", group="c", domain="d", target_type="classification")]),
             [write_roster(tmp_path / "first.json", [first]), write_roster(tmp_path / "second.json", [second])],
+            policy=synthetic_policy(),
+        )
+
+
+def test_duplicate_input_digest_within_manifest_is_rejected(tmp_path):
+    first = make_case(tmp_path, "same-input-a", group="g1", domain="d", target_type="classification")
+    second = make_case(tmp_path, "same-input-b", group="g2", domain="d", target_type="classification")
+    shutil.copytree(first["unit_dir"], tmp_path / "same-input-copy")
+    second["unit_dir"] = str(tmp_path / "same-input-copy")
+    with pytest.raises(ValueError, match="duplicate input_digest"):
+        inventory.audit(
+            write_roster(tmp_path / "candidate.json", [first, second]),
+            [],
             policy=synthetic_policy(),
         )
 
