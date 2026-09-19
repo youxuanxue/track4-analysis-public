@@ -120,9 +120,9 @@ def build_user_prompt(task: dict, entity: dict, retrieved: list[Chunk]) -> str:
         )
     if spec.mode == "change_bps":
         lines.append(
-            "TARGET SEMANTICS: predict the change in basis points from the current level to the projected level, "
-            "not the current rate level. When both levels are available, subtract the current level from the "
-            "projected level and report that difference in basis points."
+            "TARGET SEMANTICS: use both the current level and the projected level; predict the change in basis points, "
+            "not the current rate level. When both levels are available, calculate projected level minus the current "
+            "level and report that difference in basis points."
         )
     level = spec.level
 
