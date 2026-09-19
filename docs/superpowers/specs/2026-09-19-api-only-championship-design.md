@@ -17,7 +17,7 @@ G3-official remains out of scope until the production judge, equivalence contrac
 
 ## Repository and evidence boundaries
 
-The public repository contains only participant-facing contracts, agent code, generic tests, and generic batch-safety tools. `/Users/feng/Codes/challenge/agenthon2026/t4-evaluation` holds private evaluation reports and immutable historical evidence. `/Users/feng/Codes/challenge/agenthon2026/t4-submission` holds local descriptor inputs. No resolved target, prediction report, Codabench unit score, source snapshot, or sealed-event list may enter the public branch or pull request.
+The public repository contains only participant-facing contracts, agent code, generic tests, and generic batch-safety tools. Private evaluation reports, immutable historical evidence, local descriptor inputs, resolved targets, prediction reports, Codabench unit scores, source snapshots, and sealed-event lists stay outside the public branch and pull request.
 
 Historical private files are append-only evidence. New supersession or migration records may point to them, but existing receipts, registrations, reports, descriptors, and digest-bound plans are not rewritten.
 
@@ -45,7 +45,7 @@ The candidate gate requires a clean commit, all public tests, all-unit smoke, of
 
 A generic audit compares candidate manifest event groups and input digests against one or more consumed manifests or registrations. Any overlap fails closed with a nonzero exit. The audit also checks the internal policy minima: at least 60 independent events, at least three domains with 20 events each, and at least 20 groups for each target type.
 
-Current private evidence indicates that r8 consumed all 83 qualified events. If source expansion does not produce a qualifying fresh manifest, N4 closes this iteration as `BLOCKED_INVENTORY` with an append-only private record. It must not invoke `confirmations.seal`, rename old groups, reinterpret seeds as events, or claim G3-local PASS.
+If the private source audit does not produce a qualifying fresh manifest, N4 closes this iteration as `BLOCKED_INVENTORY` with an append-only private record. It must not invoke `confirmations.seal`, rename old groups, reinterpret seeds as events, or claim G3-local PASS.
 
 ## Testing and release
 

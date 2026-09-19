@@ -75,11 +75,9 @@ This plan executes the approved N1–N4 design in isolated, reviewable tasks. It
 ### Task 3: Private descriptor and evidence migration (N1/N2-private)
 
 **Files outside public repository:**
-- Create: `/Users/feng/Codes/challenge/agenthon2026/t4-evaluation/API-ONLY-SUPERSESSION-20260919.md`
-- Create: `/Users/feng/Codes/challenge/agenthon2026/t4-evaluation/toolkit-243-migration-20260919/`
-- Replace active local descriptor: `/Users/feng/Codes/challenge/agenthon2026/t4-submission/submission.json`
-- Replace examples: `/Users/feng/Codes/challenge/agenthon2026/t4-submission/submission.draft.json`
-- Replace examples: `/Users/feng/Codes/challenge/agenthon2026/t4-submission/analysis_dev.fixture.json`
+- Create: a private supersession record naming the retired model paths and their replacement policy
+- Create: a private v2.4.3 migration record with package identity and validation commands
+- Replace active local API descriptor and examples only after identifying them as active inputs; preserve historical descriptors and receipts unchanged
 
 **Interfaces:**
 - Consumes: immutable historical receipts and the current hosted API descriptor.
@@ -88,8 +86,8 @@ This plan executes the approved N1–N4 design in isolated, reviewable tasks. It
 - [ ] Write the supersession record stating that local model experiments are historical diagnostics and cannot enter active candidates, budgets, or acceptance plans.
 - [ ] Generate API descriptors from the v2.4.3 contract; set `models` according to actual House use and recompute descriptor digests with toolkit tooling.
 - [ ] Prove all active descriptors parse under 2.4.3 and legacy BYO descriptors are rejected.
-- [ ] Rerun the frozen before and after candidates in the same 2.4.3 environment without overwriting r8.
-- [ ] Compare same-role 2.4.2 and 2.4.3 outputs; document every difference and block promotion on unexplained differences.
+- [ ] Rerun the frozen before and after candidates in the same 2.4.3 environment without overwriting earlier evidence.
+- [ ] Compare same-role 2.4.2 and 2.4.3 outputs; document every difference and block promotion on unexplained differences. If the candidate pair is unavailable, record N2 as partial/BLOCKED rather than claiming equivalence.
 
 ### Task 4: House-compatible diagnostics tests (N3-observability)
 
