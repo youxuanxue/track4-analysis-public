@@ -4,16 +4,71 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from copy import deepcopy
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
 from baselines.strong_rag_baseline import cli
+from baselines.strong_rag_baseline import agent
 from baselines.strong_rag_baseline.agent import EntityResult
-from baselines.strong_rag_baseline.client import MockModelClient, ModelBudgetExceeded
+from baselines.strong_rag_baseline.indexer import build_index
+from baselines.strong_rag_baseline.retriever import BM25Index
+from baselines.strong_rag_baseline.client import (
+    HTTPModelClient,
+    ModelBudgetExceeded,
+    ModelTimeout,
+    MockModelClient,
+)
+from baselines.strong_rag_baseline.config import Config
 
 
 SECRET = "synthetic-private-token-do-not-log"
+
+
+@pytest.fixture
+def http_model_client(monkeypatch):
+    state = {"reply": {}, "delay": 0.0, "calls": 0}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            state["calls"] += 1
+            if state["delay"]:
+                import time
+
+                time.sleep(state["delay"])
+            body = {
+                "choices": [
+                    {
+                        "message": {"content": json.dumps(state["reply"])},
+                        "finish_reason": "stop",
+                    }
+                ]
+            }
+            encoded = json.dumps(body).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+        def log_message(self, *_args):
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    config = Config.from_env()
+    client = HTTPModelClient(
+        config,
+        base_url=f"http://127.0.0.1:{server.server_port}/v1",
+    )
+    client._stub_state = state
+    yield client
+    server.shutdown()
+    server.server_close()
+    thread.join(timeout=2)
 
 
 @pytest.fixture
@@ -284,6 +339,96 @@ def test_diagnostics_propagate_model_acceptance_for_each_target_type(
         "evidence": "accepted",
         "prediction": "accepted",
     }
+
+
+def test_http_client_to_agent_records_accepted_response(unit, tmp_path, http_model_client):
+    task, corpus, reply = unit
+    http_model_client._stub_state["reply"] = reply
+    path = tmp_path / "diagnostics.json"
+    cli.run(task, corpus, tmp_path / "answer.json", http_model_client, 5, diagnostics_path=path)
+    entity = json.loads(path.read_text())["entities"][0]
+    assert entity["model_accepted"] is True
+    assert entity["stages"]["prediction"] == "accepted"
+    assert http_model_client.request_ledger()["attempts_used"] == 1
+
+
+@pytest.mark.parametrize("target_type", ["classification", "regression", "ranking"])
+def test_http_model_rejection_diagnostics_for_each_target_type(
+    unit, tmp_path, http_model_client, target_type
+):
+    task, corpus, reply = unit
+    task_data = json.loads(task.read_text())
+    task_data["target"] = {"type": target_type, "name": "revenue_growth_pct", "unit": "percent"}
+    if target_type == "classification":
+        task_data["target"]["labels"] = ["up", "down"]
+        reply["label"] = "not-a-label"
+    elif target_type == "ranking":
+        task_data["target"]["name"] = "revenue_rank"
+        task_data["entities"] = [
+            {"entity_id": "ACME", "name": "Acme"},
+            {"entity_id": "BETA", "name": "Beta"},
+        ]
+        (corpus / "beta.json").write_text(
+            json.dumps({"doc_date": "2024-01-10", "text": "Beta expects revenue growth of 3 percent next quarter."})
+        )
+        reply["point_forecast"] = 1.0
+        reply["evidence"][0]["claim"] = "Acme expects 5 percent growth."
+    else:
+        reply["point_forecast"] = 999.0
+    task.write_text(json.dumps(task_data))
+    http_model_client._stub_state["reply"] = reply
+    path = tmp_path / "diagnostics.json"
+    cli.run(task, corpus, tmp_path / "answer.json", http_model_client, 5, diagnostics_path=path)
+    entities = json.loads(path.read_text())["entities"]
+    assert entities[0]["model_accepted"] is False
+    assert entities[0]["source"] == "grounded"
+    assert entities[0]["stages"]["request"] == "accepted"
+    assert entities[0]["stages"]["json"] == "accepted"
+    assert entities[0]["stages"]["prediction"] == "not_attempted"
+
+
+def test_http_model_budget_diagnostics(unit, tmp_path, http_model_client):
+    task, corpus, reply = unit
+    http_model_client._stub_state["reply"] = reply
+    http_model_client.config = Config.from_env()
+    http_model_client.config = http_model_client.config.__class__(
+        **{**http_model_client.config.__dict__, "max_requests": 0}
+    )
+    path = tmp_path / "diagnostics.json"
+    cli.run(task, corpus, tmp_path / "answer.json", http_model_client, 5, diagnostics_path=path)
+    entity = json.loads(path.read_text())["entities"][0]
+    assert entity["fallback_reason"] == "model_budget"
+    assert entity["stages"]["request"] == "budget"
+
+
+def test_http_model_timeout_diagnostics(unit, tmp_path, http_model_client):
+    task, corpus, reply = unit
+    http_model_client._stub_state["reply"] = reply
+    http_model_client.config = http_model_client.config.__class__(
+        **{**http_model_client.config.__dict__, "timeout_s": 0.1, "max_retries": 1}
+    )
+    http_model_client._stub_state["delay"] = 0.3
+    path = tmp_path / "diagnostics.json"
+    cli.run(task, corpus, tmp_path / "answer.json", http_model_client, 5, diagnostics_path=path)
+    entity = json.loads(path.read_text())["entities"][0]
+    assert entity["fallback_reason"] == "model_request"
+    assert entity["stages"]["request"] == "timeout"
+
+
+def test_no_retrieved_evidence_does_not_claim_request_accepted(unit):
+    task_path, corpus_dir, _ = unit
+    task = json.loads(task_path.read_text())
+    entity = {"entity_id": "MISSING", "name": "Missing"}
+    indexed = build_index(corpus_dir)
+    result = agent.run_entity(
+        task,
+        entity,
+        BM25Index(indexed.chunks, task["cutoff_date"]),
+        indexed,
+        MockModelClient("unused"),
+        5,
+    )
+    assert result.diagnostics["request"] == "not_attempted"
 
 
 def test_diagnostics_explain_timeout_and_budget_fallback(unit, tmp_path):

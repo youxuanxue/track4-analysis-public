@@ -30,6 +30,10 @@ class ModelBudgetExceeded(RuntimeError):
     """No further HTTP request may be made within this unit."""
 
 
+class ModelTimeout(RuntimeError):
+    """The model call exhausted its per-call or unit deadline."""
+
+
 def chat_completions_url(model_endpoint: str) -> str:
     """The chat-completions URL for an endpoint given with or without ``/v1``.
 
@@ -141,7 +145,7 @@ class HTTPModelClient:
         for attempt in range(self.config.max_retries):
             remaining = float(self.deadline) - time.monotonic()
             if remaining <= 0:
-                raise RuntimeError("unit model deadline exhausted") from last_error
+                raise ModelTimeout("unit model deadline exhausted") from last_error
             if len(self._attempts) >= self.config.max_requests:
                 self._budget_blocks += 1
                 raise ModelBudgetExceeded("unit request budget exhausted")
@@ -225,6 +229,10 @@ class HTTPModelClient:
                     time.sleep(min(2**attempt, remaining))
             finally:
                 record["elapsed_s"] = max(0.0, time.monotonic() - started)
+        if isinstance(last_error, (TimeoutError, ModelTimeout)):
+            raise ModelTimeout(
+                f"model call timed out after {self.config.max_retries} attempts"
+            ) from last_error
         raise RuntimeError(
             f"model call failed after {self.config.max_retries} attempts"
         ) from last_error

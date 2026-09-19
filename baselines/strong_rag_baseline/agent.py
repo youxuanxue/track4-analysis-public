@@ -10,7 +10,7 @@ import json
 from dataclasses import dataclass
 from typing import Literal
 
-from .client import ModelClient, ModelBudgetExceeded
+from .client import ModelClient, ModelBudgetExceeded, ModelTimeout
 from .evidence import evidence_references, prepare_evidence
 from .indexer import Chunk, IndexedCorpus
 from .prompts import SYSTEM_PROMPT, build_response_schema, build_user_prompt
@@ -168,7 +168,7 @@ def run_entity(
     try:
         if not retrieved:
             failure_stage = "model_evidence"
-            stages["request"] = "accepted"
+            stages["request"] = "not_attempted"
             stages["json"] = "not_attempted"
             raise ValueError("no entity-bound evidence available")
         prompt = build_user_prompt(task, entity, retrieved)
@@ -224,7 +224,7 @@ def run_entity(
         )
         if isinstance(exc, ModelBudgetExceeded):
             stages["request"] = "budget"
-        elif isinstance(exc, TimeoutError):
+        elif isinstance(exc, (TimeoutError, ModelTimeout)):
             stages["request"] = "timeout"
         elif stages["request"] == "pending":
             stages["request"] = "rejected"
