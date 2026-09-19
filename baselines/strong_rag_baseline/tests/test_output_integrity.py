@@ -7,7 +7,11 @@ from copy import deepcopy
 import pytest
 
 from baselines.strong_rag_baseline.agent import EntityResult
-from baselines.strong_rag_baseline.formatter import build_answer
+from baselines.strong_rag_baseline.formatter import (
+    _normalize_rank_outputs,
+    _shrink_regression_predictions,
+    build_answer,
+)
 from baselines.strong_rag_baseline.indexer import IndexedCorpus, build_index
 
 
@@ -124,3 +128,37 @@ def test_long_flat_documents_are_bounded_without_losing_source_offsets(tmp_path)
         assert text[chunk.span_start : chunk.span_end] == chunk.text
         covered_until = chunk.span_end
     assert covered_until == len(text)
+
+
+def test_model_regression_predictions_are_shrunk_by_source_marker():
+    predictions = [
+        {
+            "entity_id": eid,
+            "point_forecast": point,
+            "interval": {"level": 0.9, "lo": point - 10, "hi": point + 10},
+            "claims": [{"doc_id": "evidence", "span_start": 0, "span_end": 1, "claim": "X"}],
+        }
+        for eid, point in (("A", 1.0), ("B", 1.2), ("C", 100.0))
+    ]
+    results = [
+        EntityResult(prediction, 0, "", source="model")
+        for prediction in predictions
+    ]
+    updated = _shrink_regression_predictions(predictions, "regression", results)
+    assert updated[-1]["point_forecast"] < 100.0
+
+
+def test_ranking_permutation_is_inverted_to_larger_is_better():
+    predictions = [
+        {
+            "entity_id": eid,
+            "point_forecast": rank,
+            "interval": {"level": 0.9, "lo": 0.0, "hi": 4.0},
+            "claims": [{"doc_id": "evidence", "span_start": 0, "span_end": 1, "claim": "X"}],
+        }
+        for eid, rank in (("A", 1), ("B", 3), ("C", 2))
+    ]
+    updated = _normalize_rank_outputs(predictions, "ranking")
+    assert [row["point_forecast"] for row in updated] == [3, 1, 2]
+    for row in updated:
+        assert row["interval"]["lo"] <= row["point_forecast"] <= row["interval"]["hi"]

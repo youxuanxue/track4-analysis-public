@@ -85,6 +85,21 @@ def test_public_predictions_obey_quantity_and_evidence_contracts(
                 assert str(entity["cik"]).zfill(10) in doc_id
 
 
+def test_cpi_first_print_uses_target_scale_entity_baseline(tmp_path: Path):
+    unit = REPO / "units" / "t4-cpicomp-202410-us11"
+    task = json.loads((unit / "task.json").read_text())
+    entity = next(row for row in task["entities"] if row["entity_id"] == "CPI_ALLITEMS")
+    corpus = build_index(unit / "corpus")
+    result = run_entity_grounded(
+        task,
+        entity,
+        BM25Index(corpus.chunks, task["cutoff_date"]),
+        corpus,
+        10,
+    )
+    assert result.prediction["point_forecast"] == entity["latest_published_mom_pct"]
+
+
 def test_extract_numbers_preserves_numeric_sign_and_scale() -> None:
     assert extract_numbers("first print +0.18%; range -0.06% to +0.44%") == [
         0.18,

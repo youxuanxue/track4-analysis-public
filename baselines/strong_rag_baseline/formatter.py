@@ -22,10 +22,13 @@ def _shrink_regression_predictions(
     """Shrink extreme cross-sectional outliers towards the median for ungrounded/model estimates."""
     if kind != "regression" or len(predictions) < 3:
         return predictions
+    # ``rationale`` belongs to the grounded reasoner and is intentionally empty
+    # for accepted model responses.  Looking for the word "model" there made
+    # this safety net dead code on every successful API prediction.  The source
+    # marker is the authoritative signal and also keeps this independent of
+    # human-readable rationale wording.
     shrunk_entities = {
-        r.prediction["entity_id"]
-        for r in results
-        if "model" in (r.rationale or "").lower()
+        r.prediction["entity_id"] for r in results if r.source == "model"
     }
     if len(shrunk_entities) < 3:
         return predictions
@@ -66,15 +69,57 @@ def _shrink_regression_predictions(
     return updated
 
 
+def _normalize_rank_outputs(
+    predictions: list[dict], kind: str | None
+) -> list[dict]:
+    """Repair the common ``rank 1 = best`` response on ranking tasks.
+
+    The scorer orders ``point_forecast`` with larger values first.  A model can
+    still occasionally return a permutation of one-based rank integers despite
+    the prompt asking for a continuous score.  Such a permutation is
+    unambiguous and can be inverted without changing the evidence or the
+    roster.  Genuine metric forecasts and tied values pass through unchanged.
+    """
+    if kind != "ranking" or len(predictions) < 2:
+        return predictions
+    raw = [p.get("point_forecast") for p in predictions]
+    if not all(
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and float(value).is_integer()
+        for value in raw
+    ):
+        return predictions
+    values = [int(value) for value in raw]
+    count = len(values)
+    if set(values) != set(range(1, count + 1)):
+        return predictions
+    updated: list[dict] = []
+    for prediction, rank in zip(predictions, values, strict=True):
+        new_prediction = dict(prediction)
+        point = count - rank + 1
+        new_prediction["point_forecast"] = point
+        interval = new_prediction.get("interval")
+        if isinstance(interval, dict):
+            interval = dict(interval)
+            if isinstance(interval.get("lo"), (int, float)):
+                interval["lo"] = min(interval["lo"], point)
+            if isinstance(interval.get("hi"), (int, float)):
+                interval["hi"] = max(interval["hi"], point)
+            new_prediction["interval"] = interval
+        updated.append(new_prediction)
+    return updated
+
+
 def build_answer(
     task: dict, results: list[EntityResult], corpus: IndexedCorpus
 ) -> dict:
     total_dropped = sum(r.dropped_claims for r in results)
     total_claims = sum(len(r.prediction["claims"]) for r in results)
     kind = target_type(task)
-    predictions = _shrink_regression_predictions(
-        [dict(r.prediction) for r in results], kind, results
-    )
+    predictions = [dict(r.prediction) for r in results]
+    predictions = _shrink_regression_predictions(predictions, kind, results)
+    predictions = _normalize_rank_outputs(predictions, kind)
     answer: dict = {
         "task_id": task.get("task_id", ""),
         "schema_version": task.get("schema_version", "3"),

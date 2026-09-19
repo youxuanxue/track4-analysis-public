@@ -466,6 +466,20 @@ def _estimate(
             if match
             else None
         )
+    if spec.mode == "percent" and any(
+        token in spec.name for token in ("mom", "first_print")
+    ):
+        # Many vintage tasks expose the latest published first print directly
+        # on the entity row.  It is the right target-scale baseline when the
+        # corpus table uses a human-readable column name that cannot be bound
+        # by ``summary_columns``.
+        latest = entity.get("latest_published_mom_pct")
+        if finite_number(latest):
+            return Estimate(
+                float(latest),
+                "latest published month-over-month first print persistence",
+                9,
+            )
     if spec.mode == "eps":
         value = _eps_level(text, context_prefix)
         if value is not None:
@@ -653,10 +667,41 @@ def ground_entity(
                     "percent",
                     "growth_pct",
                 ):
+                    # A month-over-month first-print task asks for the next
+                    # observation on the published percentage scale.  Treating
+                    # the table's last-minus-previous delta as the forecast
+                    # confuses a change in the series with the series value
+                    # itself (for example, 0.18 - 0.12 = 0.06 instead of the
+                    # next CPI print baseline 0.18).  Targets explicitly named
+                    # as a level/first print therefore persist the last source
+                    # value; true growth/change targets retain the delta.
+                    level_target = any(
+                        token in spec.name
+                        for token in ("mom", "first_print", "level")
+                    )
+                    entity_level = next(
+                        (
+                            entity.get(key)
+                            for key in (
+                                "latest_published_mom_pct",
+                                "last_mom_pct",
+                            )
+                            if finite_number(entity.get(key))
+                        ),
+                        None,
+                    )
                     pt = (
-                        s.get("last_minus_previous")
-                        if s.get("last_minus_previous") is not None
-                        else s.get("last_minus_first")
+                        entity_level
+                        if level_target and entity_level is not None
+                        else (
+                            s.get("last")
+                            if level_target
+                            else (
+                                s.get("last_minus_previous")
+                                if s.get("last_minus_previous") is not None
+                                else s.get("last_minus_first")
+                            )
+                        )
                     )
                     if pt is not None and finite_number(pt):
                         span = s.get("last_row_span", s["source_span"])
