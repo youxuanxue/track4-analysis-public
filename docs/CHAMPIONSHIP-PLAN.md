@@ -20,7 +20,7 @@ is parallel to this ladder, not gated on full G3=PASS.
 
 执行检查点（2026-09-18 复核）：**内部 goal 仍为 `BLOCKED` 于完整 G3**，但 G1/G2 已在私有密封验收上实测通过（容器工程门 + 含 classification/regression/ranking 分层的质量门）。G3 整体仍为 `UNMEASURED`：缺互不重叠的确认批、获准生产 judge，以及运行等价/工件资格合同。`decision` 在单批 G2 通过后仍可为 `KEEP_INCUMBENT`（政策要求 `confirmation_batches = 2`）。托管 Development 提交与本地晋级阶梯并行，不以完整 G3=PASS 为再提交前置。
 
-同日裁定（issue #8，已关闭，组织方明示「will not be reopened」）：**Track 4 全程仅 `category = "api"`**——官方评测只走 House 模型（`MODEL_ENDPOINT` + `/v1`，bearer `MODEL_TOKEN`），无 fine-tuning、LoRA、adapter 或任何参赛方语言模型权重；toolkit 2.4.3 起 descriptor 不再接受 `byo-*`。本地验证仍 pin v2.4.2（提交命令与该 tag 对齐）；升级到 2.4.3 时按下方规则在同一新环境重跑双方。ARTIFACT-POLICY 允许的非语言模型本地数值工件不受此裁定影响。
+同日裁定（issue #8，已关闭，组织方明示「will not be reopened」）：**Track 4 全程仅 `category = "api"`**——官方评测只走 House 模型（`MODEL_ENDPOINT` + `/v1`，bearer `MODEL_TOKEN`），无 fine-tuning、LoRA、adapter 或任何参赛方语言模型权重；toolkit 2.4.3 起 descriptor 不再接受 `byo-*`。当前公开操作性验证统一 pin v2.4.3（提交命令与该 tag 对齐）；历史 2.4.2 记录保持不可变，并不得与新环境结果混用。ARTIFACT-POLICY 允许的非语言模型本地数值工件不受此裁定影响。
 
 当前缺口按能否本地推进拆分：
 
