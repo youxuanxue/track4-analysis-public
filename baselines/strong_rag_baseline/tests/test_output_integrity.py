@@ -7,10 +7,7 @@ from copy import deepcopy
 import pytest
 
 from baselines.strong_rag_baseline.agent import EntityResult
-from baselines.strong_rag_baseline.formatter import (
-    _shrink_regression_predictions,
-    build_answer,
-)
+from baselines.strong_rag_baseline.formatter import build_answer
 from baselines.strong_rag_baseline.indexer import IndexedCorpus, build_index
 
 
@@ -129,26 +126,6 @@ def test_long_flat_documents_are_bounded_without_losing_source_offsets(tmp_path)
     assert covered_until == len(text)
 
 
-def test_model_regression_predictions_are_shrunk_by_source_marker():
-    predictions = [
-        {
-            "entity_id": eid,
-            "point_forecast": point,
-            "interval": {"level": 0.9, "lo": point - 10, "hi": point + 10},
-            "claims": [{"doc_id": "evidence", "span_start": 0, "span_end": 1, "claim": "X"}],
-        }
-        for eid, point in (("A", 1.0), ("B", 1.2), ("C", 100.0))
-    ]
-    results = [
-        EntityResult(prediction, 0, "", source="model")
-        for prediction in predictions
-    ]
-    before = deepcopy(predictions)
-    updated = _shrink_regression_predictions(predictions, "regression", results)
-    assert updated[-1]["point_forecast"] < 100.0
-    assert predictions == before
-
-
 @pytest.mark.parametrize("source", ["model", "grounded"])
 @pytest.mark.parametrize("points", [(1, 3, 2), (0.1, 0.3, 0.2), (2, 2, 1)])
 def test_ranking_preserves_target_metric_values(source, points):
@@ -169,4 +146,34 @@ def test_ranking_preserves_target_metric_values(source, points):
     results = [EntityResult(p, 0, "", source=source) for p in predictions]
     answer = build_answer(task, results, corpus)
     assert answer["entity_predictions"] == before
+    assert predictions == before
+
+
+@pytest.mark.parametrize(
+    "points", [(1.0, 2.0, 30.0), (-20.0, -15.0, 10.0), (0.00001, 0.00002, 0.00003)]
+)
+def test_regression_preserves_validated_metric_scale_and_domain(points):
+    task, corpus, template = inputs()
+    task["target"] = {
+        "type": "regression",
+        "name": "measurement",
+        "minimum": min(points),
+        "maximum": max(points),
+    }
+    task["entities"] = [{"entity_id": eid} for eid in ("A", "B", "C")]
+    predictions = [
+        dict(
+            deepcopy(template),
+            entity_id=e["entity_id"],
+            label=None,
+            point_forecast=point,
+            interval={"level": 0.9, "lo": point, "hi": point},
+        )
+        for e, point in zip(task["entities"], points, strict=True)
+    ]
+    before = deepcopy(predictions)
+    result = build_answer(
+        task, [EntityResult(p, 0, "", source="model") for p in predictions], corpus
+    )
+    assert result["entity_predictions"] == before
     assert predictions == before

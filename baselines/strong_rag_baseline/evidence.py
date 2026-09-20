@@ -14,7 +14,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from .indexer import Chunk, IndexedCorpus, calendar_date, dated_on_or_before
-from .quantities import finite_number
+from .macro_context import shared_macro_context
+from .quantities import TargetSpec, finite_number
 from .reasoner import _alias_hit, _entity_aliases, collect_windows
 from .retriever import BM25Index
 from .schema import target_name, target_type
@@ -83,6 +84,29 @@ def evidence_references(chunks: list[Chunk]) -> dict[str, Chunk]:
 
 def evidence_queries(task: dict, entity: dict) -> list[str]:
     """Search the requested quantity from observation and expectation angles."""
+    spec = TargetSpec.from_task(task, entity)
+    if spec.mode == "probability" and re.search(
+        r"\b(?:credit event|default|bankruptcy)\b", spec.name
+    ):
+        # "Credit event" otherwise retrieves customer credit risk and unrelated
+        # "in the event" boilerplate. Search both distress and funding capacity.
+        return [
+            "credit default defaulted bankruptcy bankrupt insolvency probability going concern substantial doubt",
+            "liquidity sufficient cash resources funding operations",
+            "covenants compliance maturities indebtedness leverage",
+            "net losses cash flows financing borrowing capacity",
+        ]
+    if spec.mode == "return_pct" and re.search(
+        r"\bearnings?\b", f"{spec.name} {task.get('prompt', '')}", re.I
+    ):
+        # A marketer's reaction is not a stock reaction. Retrieve operating
+        # results, expectations and market uncertainty without predicting a sign.
+        return [
+            "revenue net sales operating income net income earnings growth",
+            "guidance outlook expect expected next quarter revenue operating income",
+            "stock price returns volatility market expectations earnings announcement",
+            "demand margins profitability expenses capital return repurchase dividend",
+        ]
     identity = " ".join(dict.fromkeys(_entity_aliases(entity)))
     metric = target_name(task)
     # Filings spell out EPS; generic growth terms otherwise favor GDP scenarios.
@@ -257,6 +281,23 @@ def prepare_evidence(
         candidates[(window.doc_id, start, end)] = Chunk(
             window.doc_id, window.doc_date, start, end, snippet
         )
+    # Reserve at most half the packet for shared policy context. Projection
+    # headers and rows were selected together and must survive as a group.
+    shared = (
+        shared_macro_context(
+            task,
+            entity,
+            corpus,
+            max_chunks=min(4, top_k // 2),
+            max_chars=min(4_000, max_chars // 3),
+            max_span_chars=max_span_chars,
+        )
+        if top_k >= 2 and max_chars >= 3
+        else []
+    )
+    shared_keys = [(c.doc_id, c.span_start, c.span_end) for c in shared]
+    for key, chunk in zip(shared_keys, shared, strict=True):
+        candidates[key] = chunk
     queries = evidence_queries(task, entity)
     scoped_index = BM25Index(list(candidates.values()), cutoff)
     scores: dict[tuple[str, int, int], float] = {}
@@ -270,7 +311,12 @@ def prepare_evidence(
     records = []
     used_chars = 0
     cik = str(entity.get("cik") or "").zfill(10) if entity.get("cik") else ""
-    for key in sorted(scores, key=lambda key: (-scores[key], *key)):
+    ordered_keys = shared_keys + [
+        key
+        for key in sorted(scores, key=lambda key: (-scores[key], *key))
+        if key not in shared_keys
+    ]
+    for key in ordered_keys:
         chunk = candidates[key]
         if used_chars + len(chunk.text) > max_chars:
             continue
@@ -289,7 +335,9 @@ def prepare_evidence(
         used_chars += len(chunk.text)
         matched = [alias for alias in aliases if _alias_hit(chunk.text, [alias])]
         provenance = (
-            "series_column"
+            "shared_context"
+            if key in shared_keys
+            else "series_column"
             if key in table_keys and series
             else "document_table"
             if key in table_keys
@@ -311,7 +359,7 @@ def prepare_evidence(
                     "aliases": matched,
                     **({"column": series} if key in table_keys and series else {}),
                 },
-                "query_ids": query_hits[key],
+                "query_ids": query_hits.get(key, []),
                 "metrics": _mentions(_METRIC, chunk),
                 "periods": _mentions(_PERIOD, chunk),
                 "quantities": _quantities(chunk),

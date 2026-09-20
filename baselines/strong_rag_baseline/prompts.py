@@ -118,11 +118,29 @@ def build_user_prompt(task: dict, entity: dict, retrieved: list[Chunk]) -> str:
         lines.append(
             "Predict the probability of the target event on the 0 to 1 scale, not confidence in your selected label."
         )
+        if kind == "classification" and len(labels) == 2:
+            lines.append(
+                "When the two labels mean that the target event happens or does not happen, keep the event "
+                "probability and label consistent: select the more likely outcome unless the task specifies "
+                "a different decision rule."
+            )
+    if spec.mode == "probability" and "credit" in spec.name:
+        lines.append(
+            "Distinguish observed financial distress from conditional risk disclosures ('if', 'could', 'may'). "
+            "Weigh current liquidity and the credibility of mitigating actions alongside risk evidence; a hypothetical default "
+            "clause alone does not establish that a default is likely."
+        )
     if spec.mode == "change_bps":
         lines.append(
             "TARGET SEMANTICS: use both the current level and the projected level; predict the change in basis points, "
             "not the current rate level. When both levels are available, calculate projected level minus the current "
-            "level and report that difference in basis points."
+            "level and report that difference in basis points. "
+            "Policy-rate decisions and projections are shared macro context, not observed or projected Treasury "
+            "yields for this maturity. Distinguish the policy rate from the Treasury yield and the policy projection "
+            "horizon from this task's resolution date. "
+            "A trailing yield change or meeting-day move is historical evidence, not the requested future "
+            "change from cutoff to resolution. Account for policy expectations already reflected in the "
+            "starting yield instead of copying historical changes as the forecast."
         )
     level = spec.level
 
