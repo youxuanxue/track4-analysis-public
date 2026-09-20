@@ -466,20 +466,6 @@ def _estimate(
             if match
             else None
         )
-    if spec.mode == "percent" and any(
-        token in spec.name for token in ("mom", "first_print")
-    ):
-        # Many vintage tasks expose the latest published first print directly
-        # on the entity row.  It is the right target-scale baseline when the
-        # corpus table uses a human-readable column name that cannot be bound
-        # by ``summary_columns``.
-        latest = entity.get("latest_published_mom_pct")
-        if finite_number(latest):
-            return Estimate(
-                float(latest),
-                "latest published month-over-month first print persistence",
-                9,
-            )
     if spec.mode == "eps":
         value = _eps_level(text, context_prefix)
         if value is not None:
@@ -509,8 +495,9 @@ def _estimate(
         )
         if match:
             return Estimate(float(match[1]), "historical bid-to-cover persistence", 8)
-    # Only matching quantity columns seed persistence. Market cap and employee
-    # count do not become forecasts for a different numeric target.
+    # Only matching quantity columns seed persistence, and the cited window
+    # must contain the value. Entity priors alone cannot support a source title.
+    # Market cap and employee count do not become forecasts for another target.
     tokens = set(_TOKENS.findall(spec.name)) - {
         "rank",
         "direction",

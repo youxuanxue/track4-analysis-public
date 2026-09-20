@@ -85,10 +85,11 @@ def test_public_predictions_obey_quantity_and_evidence_contracts(
                 assert str(entity["cik"]).zfill(10) in doc_id
 
 
-def test_cpi_first_print_uses_target_scale_entity_baseline(tmp_path: Path):
+@pytest.mark.parametrize("entity_id", ["CPI_ALLITEMS", "CPI_ENERGY", "CPI_GASOLINE"])
+def test_cpi_first_print_keeps_target_scale_and_numeric_evidence(entity_id):
     unit = REPO / "units" / "t4-cpicomp-202410-us11"
     task = json.loads((unit / "task.json").read_text())
-    entity = next(row for row in task["entities"] if row["entity_id"] == "CPI_ALLITEMS")
+    entity = next(row for row in task["entities"] if row["entity_id"] == entity_id)
     corpus = build_index(unit / "corpus")
     result = run_entity_grounded(
         task,
@@ -98,6 +99,11 @@ def test_cpi_first_print_uses_target_scale_entity_baseline(tmp_path: Path):
         10,
     )
     assert result.prediction["point_forecast"] == entity["latest_published_mom_pct"]
+    claim = result.prediction["claims"][0]
+    cited_text = corpus.doc_texts[claim["doc_id"]][
+        claim["span_start"] : claim["span_end"]
+    ]
+    assert number_in_text(cited_text, entity["latest_published_mom_pct"])
 
 
 def test_extract_numbers_preserves_numeric_sign_and_scale() -> None:

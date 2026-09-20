@@ -8,7 +8,6 @@ import pytest
 
 from baselines.strong_rag_baseline.agent import EntityResult
 from baselines.strong_rag_baseline.formatter import (
-    _normalize_rank_outputs,
     _shrink_regression_predictions,
     build_answer,
 )
@@ -144,21 +143,30 @@ def test_model_regression_predictions_are_shrunk_by_source_marker():
         EntityResult(prediction, 0, "", source="model")
         for prediction in predictions
     ]
+    before = deepcopy(predictions)
     updated = _shrink_regression_predictions(predictions, "regression", results)
     assert updated[-1]["point_forecast"] < 100.0
+    assert predictions == before
 
 
-def test_ranking_permutation_is_inverted_to_larger_is_better():
+@pytest.mark.parametrize("source", ["model", "grounded"])
+@pytest.mark.parametrize("points", [(1, 3, 2), (0.1, 0.3, 0.2), (2, 2, 1)])
+def test_ranking_preserves_target_metric_values(source, points):
+    task, corpus, template = inputs()
+    task["target"] = {"type": "ranking", "name": "revenue_growth_pct"}
+    task["entities"] = [{"entity_id": eid} for eid in ("A", "B", "C")]
     predictions = [
-        {
-            "entity_id": eid,
-            "point_forecast": rank,
-            "interval": {"level": 0.9, "lo": 0.0, "hi": 4.0},
-            "claims": [{"doc_id": "evidence", "span_start": 0, "span_end": 1, "claim": "X"}],
-        }
-        for eid, rank in (("A", 1), ("B", 3), ("C", 2))
+        dict(
+            deepcopy(template),
+            entity_id=entity["entity_id"],
+            label=None,
+            point_forecast=point,
+            interval={"level": 0.9, "lo": point - 0.1, "hi": point + 0.1},
+        )
+        for entity, point in zip(task["entities"], points, strict=True)
     ]
-    updated = _normalize_rank_outputs(predictions, "ranking")
-    assert [row["point_forecast"] for row in updated] == [3, 1, 2]
-    for row in updated:
-        assert row["interval"]["lo"] <= row["point_forecast"] <= row["interval"]["hi"]
+    before = deepcopy(predictions)
+    results = [EntityResult(p, 0, "", source=source) for p in predictions]
+    answer = build_answer(task, results, corpus)
+    assert answer["entity_predictions"] == before
+    assert predictions == before
