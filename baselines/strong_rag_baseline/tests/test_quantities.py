@@ -73,8 +73,8 @@ def test_future_yield_change_does_not_copy_current_yield() -> None:
         prompt="Predict the future yield change from the cutoff to the next meeting.",
         entity={"start_yield_pct": 3.59},
     )
-    assert result["point_forecast"] == 0.0
-    assert "fallback" in result["rationale"].lower()
+    assert result["point_forecast"] == pytest.approx(-42.5)
+    assert "policy-action" in result["rationale"].lower()
 
 
 def test_declared_yield_projection_converts_percent_to_bps() -> None:

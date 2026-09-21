@@ -19,7 +19,12 @@ _CURVE = re.compile(
     r"\b(?:front[- ]end|long[- ]end|yield curve|curve shape|term premium)\b", re.I
 )
 _EXPLANATORY = re.compile(
-    r"\b(?:expected|expectations|sensitive|anchored|projected|pricing|priced|inversion)\b",
+    r"\b(?:expected|expectations|sensitive|anchored|projected|projection|"
+    r"pricing|priced|inversion|aggressive|shallower|path|paths)\b",
+    re.I,
+)
+_REPRICING = re.compile(
+    r"\b(?:positioning|market[- ]implied|easing cycle|yield spread|scheduled event)\b",
     re.I,
 )
 _ISSUER = re.compile(
@@ -97,7 +102,7 @@ def shared_macro_context(
                 spans = [header, row]
                 if all(0 < b - a <= max_span_chars for a, b in spans):
                     groups.append(
-                        (4, [Chunk(doc_id, date, a, b, text[a:b]) for a, b in spans])
+                        (2, [Chunk(doc_id, date, a, b, text[a:b]) for a, b in spans])
                     )
         for paragraph in re.finditer(r"[^\n]+", text):
             # Sentences keep market-wide policy separate from unrelated issuer
@@ -112,10 +117,23 @@ def shared_macro_context(
                 snippet = text[start:end]
                 if not 45 <= len(snippet) <= max_span_chars or _ISSUER.search(snippet):
                     continue
-                if _alias_hit(snippet, other_aliases):
+                # Maturity aliases describe the market-wide curve, so they do
+                # not make a macro paragraph entity-specific. Keep excluding
+                # explicit roster identities (for example, another note or
+                # issuer) while allowing 2-year/10-year curve references.
+                non_maturity_aliases = {
+                    alias
+                    for alias in other_aliases
+                    if not re.fullmatch(r"\d+-year", alias)
+                }
+                if _alias_hit(snippet, non_maturity_aliases):
                     continue
                 policy = bool(_POLICY.search(snippet))
-                curve = bool(_CURVE.search(snippet) and _EXPLANATORY.search(snippet))
+                repricing = bool(_REPRICING.search(snippet))
+                curve = bool(
+                    (_CURVE.search(snippet) or repricing)
+                    and _EXPLANATORY.search(snippet)
+                )
                 if not (policy or curve):
                     continue
                 # A title alone does not explain policy or the maturity curve.
@@ -135,7 +153,15 @@ def shared_macro_context(
                         re.I,
                     )
                 )
-                priority = 3 if policy and operative else 2 if curve else 1
+                priority = (
+                    4
+                    if repricing
+                    else 3
+                    if policy and operative
+                    else 2
+                    if curve
+                    else 1
+                )
                 if re.search(r"\b(?:preferred|voting|voted)\b", snippet, re.I):
                     priority = 1
                 groups.append((priority, [Chunk(doc_id, date, start, end, snippet)]))

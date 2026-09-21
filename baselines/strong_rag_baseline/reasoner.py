@@ -350,6 +350,28 @@ def _estimate(
                 return Estimate(0.05, "solvency and liquidity evidence", 4)
         return None
     if spec.mode == "change_bps":
+        action = re.search(
+            rf"\b(?:raised|raise|increased|increase|lowered|lower|cut|cuts?)\b"
+            rf"[^.\n]{{0,180}}?(?P<bps>{_NUMBER})\s*(?:basis points?|bps)\b",
+            text,
+            re.I,
+        )
+        if action:
+            magnitude = abs(float(action["bps"]))
+            lowered = bool(
+                re.search(r"\b(?:lowered|lower|cut|cuts?)\b", action.group(0), re.I)
+            )
+            maturity = float(entity.get("maturity_years") or 10.0)
+            # A policy move is a mechanism anchor, not a Treasury forecast.
+            # The maturity weights encode the task's supplied curve mechanism:
+            # front-end yields respond more, while long-end yields respond less.
+            weight = max(0.25, min(1.0, 1.15 - 0.03 * maturity))
+            point = (-1.0 if lowered else 1.0) * magnitude * weight
+            return Estimate(
+                round(point, 2),
+                "policy-action direction scaled by maturity sensitivity; not a realized yield move",
+                7,
+            )
         if (
             "rates and macro snapshot" in text.lower()
             and "all levels are as of the" in text.lower()
@@ -628,6 +650,76 @@ def ground_entity(
         roster=task.get("entities", []),
     )
     candidates: list[tuple[Estimate, Window]] = []
+
+    if spec.mode == "change_bps":
+        # Keep the policy action, curve mechanism, and this maturity's level in
+        # one exact source span. A policy-only citation cannot entail a numeric
+        # Treasury change, and a level-only citation cannot justify its direction.
+        action_terms = re.compile(
+            r"\b(?:raised|raise|increased|increase|lowered|lower|cut|cuts?|"
+            r"target range|ongoing increases|easing cycle)\b",
+            re.I,
+        )
+        mechanism_terms = re.compile(
+            r"\b(?:front[- ]end|long[- ]end|yield curve|curve shape|"
+            r"market[- ]implied|positioning|sensitive|anchored|spread)\b",
+            re.I,
+        )
+        grouped: dict[str, list[Window]] = {}
+        # `collect_windows` is entity-bound and therefore omits a market-wide
+        # curve paragraph that does not repeat every maturity name. Reuse the
+        # same bounded shared-context selector used by the House prompt.
+        from .macro_context import shared_macro_context
+
+        shared_windows: list[Window] = []
+        for chunk in shared_macro_context(task, entity, corpus, max_chunks=6):
+            shared_windows.append(
+                Window(
+                    chunk.doc_id,
+                    chunk.doc_date,
+                    chunk.span_start,
+                    chunk.span_end,
+                    chunk.text,
+                )
+            )
+            grouped.setdefault(chunk.doc_id, []).append(shared_windows[-1])
+        for window in windows:
+            if action_terms.search(window.text) or mechanism_terms.search(window.text):
+                # Shared context already supplies the market-wide action and
+                # curve mechanism. Avoid adding an overlapping entity window:
+                # duplicate spans can push an otherwise valid citation packet
+                # over the bounded 1,400-character grounding limit.
+                if any(
+                    window.doc_id == shared.doc_id
+                    and max(window.span_start, shared.span_start)
+                    < min(window.span_end, shared.span_end)
+                    for shared in shared_windows
+                ):
+                    continue
+                grouped.setdefault(window.doc_id, []).append(window)
+        if grouped:
+            doc_id, selected = max(
+                grouped.items(),
+                key=lambda item: (
+                    sum(2 if action_terms.search(w.text) else 1 for w in item[1]),
+                    max(w.doc_date or "" for w in item[1]),
+                ),
+            )
+            selected = sorted(selected, key=lambda w: w.span_start)
+            start = min(w.span_start for w in selected)
+            end = max(w.span_end for w in selected)
+            source = corpus.doc_texts[doc_id]
+            if end - start <= 1400:
+                context = Window(
+                    doc_id,
+                    corpus.doc_dates.get(doc_id),
+                    start,
+                    end,
+                    source[start:end],
+                )
+                estimate = _estimate(spec, entity, context.text)
+                if estimate is not None:
+                    candidates.append((estimate, context))
 
     # First-class table integration
     from .evidence import _ADMINISTRATIVE, _entity_tables
