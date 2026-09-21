@@ -167,7 +167,7 @@ def test_credit_probabilities_do_not_copy_accounting_numbers(tmp_path: Path) -> 
         )
 
 
-def test_unavailable_future_yields_use_documented_zero_change_baseline(
+def test_unavailable_future_yields_use_policy_direction_and_curve_sensitivity(
     tmp_path: Path,
 ) -> None:
     unit = REPO / "units" / "t4-fomc-curve-20240918"
@@ -179,9 +179,17 @@ def test_unavailable_future_yields_use_documented_zero_change_baseline(
         10,
         grounded=True,
     )
+    points = {
+        pred["entity_id"]: pred["point_forecast"]
+        for pred in answer["entity_predictions"]
+    }
+    assert points["UST2Y"] < points["UST30Y"] < 0
     for pred in answer["entity_predictions"]:
-        assert pred["point_forecast"] == 0.0
-        assert "fallback" in answer["notes"]["fallback_rationale"][pred["entity_id"]]
+        assert "policy-action" in answer["notes"]["fallback_rationale"][
+            pred["entity_id"]
+        ]
+        cited = "\n".join(claim["claim"] for claim in pred["claims"])
+        assert "market-implied" in cited.lower()
 
 
 def test_ranking_scores_use_changes_in_percent_of_open_interest(tmp_path: Path) -> None:

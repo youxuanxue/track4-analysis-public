@@ -112,3 +112,24 @@ def test_action_outweighs_dissent_and_projection_metadata():
     assert [
         c.text for c in shared_macro_context(task, entity, corpus, max_chunks=1)
     ] == [action]
+
+
+def test_market_positioning_survives_policy_projection_context():
+    action = (
+        "The committee lowered the target range by 50 basis points and will assess incoming data."
+    )
+    positioning = (
+        "Market-implied paths were more aggressive than the Committee's projected path, "
+        "and the next scheduled FOMC meeting is inside the inter-meeting window."
+    )
+    sep = "Variable\nMedian\n2024\n2025\nFederal funds rate\n4.4\n3.4\n"
+    task, entity, corpus = _inputs(
+        [
+            ("action", "2024-05-30", action),
+            ("positioning", "2024-05-31", positioning),
+            ("sep", "2024-05-30", sep),
+        ]
+    )
+    selected = shared_macro_context(task, entity, corpus, max_chunks=4)
+    text = "\n".join(c.text for c in selected)
+    assert positioning in text
